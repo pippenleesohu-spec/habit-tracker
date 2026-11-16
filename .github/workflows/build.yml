@@ -22,11 +22,22 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Accept Android SDK licenses & ensure required SDK components
+      - name: Prepare Android SDK (runner built‑in)
         run: |
-          yes | $ANDROID_SDK_ROOT/cmdline-tools/16.0/bin/sdkmanager --licenses
-          $ANDROID_SDK_ROOT/cmdline-tools/16.0/bin/sdkmanager --update
-          $ANDROID_SDK_ROOT/cmdline-tools/16.0/bin/sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+          set -e
+          SDKMANAGER="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+          if [ -f "$SDKMANAGER" ]; then
+              echo "sdkmanager found: $SDKMANAGER"
+              export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+              # Github runner自带SDK已经预接受licenses，不需要yes | --licenses
+              $SDKMANAGER "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+          else
+              echo "WARNING: sdkmanager not found, skip sdkmanager setup, use pre‑installed SDK"
+              export PATH="$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/tools/bin:$PATH"
+          fi
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> $GITHUB_PATH
 
       - name: Generate Android Project Structure & Source Code
         run: |
@@ -1314,7 +1325,7 @@ jobs:
 
                 <button id="edit-btn" class="tactile-btn">
                   <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 2 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
                   </svg>
                   <span>编辑清单</span>
                 </button>
@@ -1419,21 +1430,4 @@ jobs:
                 const hasBridge = typeof window.AndroidBridge !== 'undefined';
 
                 function setupPWA() {
-                  const svgIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="112" fill="#e7e6e1"/><rect x="64" y="96" width="384" height="120" rx="32" fill="#faf9f5" stroke="#d1d0c9" stroke-width="8"/><rect x="304" y="122" width="112" height="68" rx="18" fill="#22a06b"/><rect x="64" y="296" width="384" height="120" rx="32" fill="#faf9f5" stroke="#d1d0c9" stroke-width="8"/><rect x="96" y="322" width="112" height="68" rx="18" fill="#e04f44"/></svg>`;
-                  const iconUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgIcon);
-
-                  const appleIcon = document.createElement('link');
-                  appleIcon.rel = 'apple-touch-icon';
-                  appleIcon.href = iconUrl;
-                  document.head.appendChild(appleIcon);
-
-                  const manifest = {
-                    name: '每日微习惯塑料打卡器',
-                    short_name: '每日打卡',
-                    start_url: '.',
-                    display: 'standalone',
-                    background_color: '#e7e6e1',
-                    theme_color: '#e7e6e1',
-                    icons: [{ src: iconUrl, sizes: '512x512', type: 'image/svg+xml', purpose: 'any maskable' }]
-                  };
-                  const manifestBlob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json
+                  const svgIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="112" fill="#e7e6e1"/><rect x="64" y="96" width="384" height="120" rx="32" fill="#faf9f5" stroke="#d1d0c9" stroke-width="8"/><rect x="304" y="122" width="112" height="68" rx="18" fill="#22a06b"/><rect x="64" y="296" width="384" height="120" rx="32
