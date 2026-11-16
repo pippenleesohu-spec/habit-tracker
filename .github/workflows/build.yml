@@ -1,0 +1,2011 @@
+name: Build Daily Habit Tracker APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Generate Android Project Structure & Source Code
+        run: |
+          python3 - << 'EOF'
+          import os
+
+          def write_file(path, content):
+              os.makedirs(os.path.dirname(path), exist_ok=True)
+              with open(path, 'w', encoding='utf-8') as f:
+                  f.write(content.lstrip('\n'))
+
+          # 1. settings.gradle.kts
+          write_file("settings.gradle.kts", """
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "PlasticHabitTracker"
+          include(":app")
+          """)
+
+          # 2. build.gradle.kts (Root)
+          write_file("build.gradle.kts", """
+          plugins {
+              id("com.android.application") version "8.2.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.22" apply false
+          }
+          """)
+
+          # 3. gradle.properties
+          write_file("gradle.properties", """
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          kotlin.code.style=official
+          android.nonTransitiveRClass=true
+          """)
+
+          # 4. app/build.gradle.kts
+          write_file("app/build.gradle.kts", """
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "com.habit.plastictracker"
+              compileSdk = 34
+
+              defaultConfig {
+                  applicationId = "com.habit.plastictracker"
+                  minSdk = 24
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+
+              buildTypes {
+                  release {
+                      isMinifyEnabled = false
+                      proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+                  }
+              }
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+
+          dependencies {
+              implementation("androidx.core:core-ktx:1.12.0")
+              implementation("androidx.appcompat:appcompat:1.6.1")
+              implementation("com.google.android.material:material:1.11.0")
+              implementation("androidx.webkit:webkit:1.10.0")
+          }
+          """)
+
+          # 5. AndroidManifest.xml
+          write_file("app/src/main/AndroidManifest.xml", """
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.VIBRATE" />
+
+              <application
+                  android:allowBackup="true"
+                  android:icon="@drawable/ic_launcher_plastic"
+                  android:label="每日微习惯打卡器"
+                  android:roundIcon="@drawable/ic_launcher_plastic"
+                  android:supportsRtl="true"
+                  android:theme="@style/Theme.PlasticTracker"
+                  android:usesCleartextTraffic="true">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:configChanges="orientation|screenSize|uiMode"
+                      android:launchMode="singleTask">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+
+                  <!-- 原生桌面小组件 -->
+                  <receiver
+                      android:name=".HabitWidgetProvider"
+                      android:exported="true"
+                      android:label="每日微习惯打卡板">
+                      <intent-filter>
+                          <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                          <action android:name="com.habit.plastictracker.ACTION_RESET_WIDGET" />
+                          <action android:name="com.habit.plastictracker.ACTION_SYNC_WIDGET" />
+                      </intent-filter>
+                      <meta-data
+                          android:name="android.appwidget.provider"
+                          android:resource="@xml/habit_widget_info" />
+                  </receiver>
+
+                  <!-- 小组件列表服务 -->
+                  <service
+                      android:name=".HabitWidgetService"
+                      android:permission="android.permission.BIND_REMOTEVIEWS"
+                      android:exported="false" />
+
+              </application>
+          </manifest>
+          """)
+
+          # 6. res/values/themes.xml
+          write_file("app/src/main/res/values/themes.xml", """
+          <resources>
+              <style name="Theme.PlasticTracker" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+                  <item name="android:statusBarColor">#e7e6e1</item>
+                  <item name="android:windowLightStatusBar">true</item>
+                  <item name="android:navigationBarColor">#e7e6e1</item>
+              </style>
+          </resources>
+          """)
+
+          # 7. Vector App Icon
+          write_file("app/src/main/res/drawable/ic_launcher_plastic.xml", """
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="512"
+              android:viewportHeight="512">
+              <path
+                  android:fillColor="#e7e6e1"
+                  android:pathData="M0,0h512v512h-512z" />
+              <path
+                  android:fillColor="#faf9f5"
+                  android:strokeColor="#d1d0c9"
+                  android:strokeWidth="8"
+                  android:pathData="M96,96h320a32,32 0,0 1,32 32v56a32,32 0,0 1,-32 32h-320a32,32 0,0 1,-32 -32v-56a32,32 0,0 1,32 -32z" />
+              <path
+                  android:fillColor="#22a06b"
+                  android:pathData="M322,122h76a18,18 0,0 1,18 18v32a18,18 0,0 1,-18 18h-76a18,18 0,0 1,-18 -18v-32a18,18 0,0 1,18 -18z" />
+              <path
+                  android:fillColor="#faf9f5"
+                  android:strokeColor="#d1d0c9"
+                  android:strokeWidth="8"
+                  android:pathData="M96,296h320a32,32 0,0 1,32 32v56a32,32 0,0 1,-32 32h-320a32,32 0,0 1,-32 -32v-56a32,32 0,0 1,32 -32z" />
+              <path
+                  android:fillColor="#e04f44"
+                  android:pathData="M114,322h76a18,18 0,0 1,18 18v32a18,18 0,0 1,-18 18h-76a18,18 0,0 1,-18 -18v-32a18,18 0,0 1,18 -18z" />
+          </vector>
+          """)
+
+          # 8. Drawables for Skeuomorphic Plastic Widget
+          write_file("app/src/main/res/drawable/bg_widget_board.xml", """
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+              <solid android:color="#E7E6E1" />
+              <corners android:radius="24dp" />
+              <stroke android:width="1.5dp" android:color="#C5C4BE" />
+          </shape>
+          """)
+
+          write_file("app/src/main/res/drawable/bg_widget_header.xml", """
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+              <solid android:color="#DCDBD5" />
+              <corners android:radius="14dp" />
+              <stroke android:width="1dp" android:color="#C5C4BE" />
+          </shape>
+          """)
+
+          write_file("app/src/main/res/drawable/bg_widget_item.xml", """
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+              <solid android:color="#FAF9F5" />
+              <corners android:radius="12dp" />
+              <stroke android:width="1dp" android:color="#D1D0C9" />
+          </shape>
+          """)
+
+          write_file("app/src/main/res/drawable/bg_widget_index.xml", """
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+              <solid android:color="#DCDBD5" />
+              <corners android:radius="6dp" />
+          </shape>
+          """)
+
+          write_file("app/src/main/res/drawable/bg_widget_switch_track.xml", """
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+              <solid android:color="#D4D3CD" />
+              <corners android:radius="8dp" />
+          </shape>
+          """)
+
+          write_file("app/src/main/res/drawable/bg_widget_switch_thumb_red.xml", """
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+              <solid android:color="#E04F44" />
+              <corners android:radius="6dp" />
+          </shape>
+          """)
+
+          write_file("app/src/main/res/drawable/bg_widget_btn.xml", """
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+              <solid android:color="#E7E6E1" />
+              <corners android:radius="8dp" />
+              <stroke android:width="1dp" android:color="#C5C4BE" />
+          </shape>
+          """)
+
+          # 9. Widget XML Metadata
+          write_file("app/src/main/res/xml/habit_widget_info.xml", """
+          <?xml version="1.0" encoding="utf-8"?>
+          <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+              android:initialLayout="@layout/widget_habit_board"
+              android:minWidth="250dp"
+              android:minHeight="250dp"
+              android:targetCellWidth="4"
+              android:targetCellHeight="4"
+              android:minResizeWidth="180dp"
+              android:minResizeHeight="120dp"
+              android:resizeMode="horizontal|vertical"
+              android:updatePeriodMillis="1800000"
+              android:widgetCategory="home_screen" />
+          """)
+
+          # 10. Widget Main Layout
+          write_file("app/src/main/res/layout/widget_habit_board.xml", """
+          <?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:id="@+id/widget_root"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:background="@drawable/bg_widget_board"
+              android:orientation="vertical"
+              android:padding="12dp">
+
+              <!-- 顶部铭牌凹槽 -->
+              <LinearLayout
+                  android:id="@+id/widget_header_box"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:background="@drawable/bg_widget_header"
+                  android:gravity="center_vertical"
+                  android:orientation="horizontal"
+                  android:paddingHorizontal="12dp"
+                  android:paddingVertical="8dp">
+
+                  <LinearLayout
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1"
+                      android:orientation="vertical">
+
+                      <TextView
+                          android:id="@+id/widget_title"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:text="每日微习惯打卡板"
+                          android:textColor="#262624"
+                          android:textSize="14sp"
+                          android:textStyle="bold" />
+
+                      <TextView
+                          android:id="@+id/widget_progress"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:layout_marginTop="2dp"
+                          android:text="剩余 10 / 10"
+                          android:textColor="#73726C"
+                          android:textSize="11sp"
+                          android:textStyle="bold" />
+                  </LinearLayout>
+
+                  <TextView
+                      android:id="@+id/widget_btn_reset"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:background="@drawable/bg_widget_btn"
+                      android:paddingHorizontal="10dp"
+                      android:paddingVertical="6dp"
+                      android:text="重置"
+                      android:textColor="#262624"
+                      android:textSize="11sp"
+                      android:textStyle="bold" />
+              </LinearLayout>
+
+              <!-- 任务滑块列表 -->
+              <ListView
+                  android:id="@+id/widget_list_view"
+                  android:layout_width="match_parent"
+                  android:layout_height="0dp"
+                  android:layout_marginTop="8dp"
+                  android:layout_weight="1"
+                  android:divider="@android:color/transparent"
+                  android:dividerHeight="6dp"
+                  android:scrollbars="none" />
+
+              <!-- 全部清零成就视图 -->
+              <LinearLayout
+                  android:id="@+id/widget_empty_view"
+                  android:layout_width="match_parent"
+                  android:layout_height="0dp"
+                  android:layout_marginTop="8dp"
+                  android:layout_weight="1"
+                  android:background="@drawable/bg_widget_item"
+                  android:gravity="center"
+                  android:orientation="vertical"
+                  android:padding="16dp"
+                  android:visibility="gone">
+
+                  <TextView
+                      android:layout_width="40dp"
+                      android:layout_height="40dp"
+                      android:background="@drawable/bg_widget_switch_thumb_red"
+                      android:backgroundTint="#22A06B"
+                      android:gravity="center"
+                      android:text="✓"
+                      android:textColor="#FFFFFF"
+                      android:textSize="22sp"
+                      android:textStyle="bold" />
+
+                  <TextView
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="8dp"
+                      android:text="今日全部清零！"
+                      android:textColor="#262624"
+                      android:textSize="15sp"
+                      android:textStyle="bold" />
+
+                  <TextView
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="4dp"
+                      android:gravity="center"
+                      android:text="所有滑块已归位，明天凌晨自动重置"
+                      android:textColor="#73726C"
+                      android:textSize="11sp" />
+              </LinearLayout>
+          </LinearLayout>
+          """)
+
+          # 11. Widget List Item Layout
+          write_file("app/src/main/res/layout/widget_habit_item.xml", """
+          <?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:id="@+id/widget_item_container"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:background="@drawable/bg_widget_item"
+              android:gravity="center_vertical"
+              android:orientation="horizontal"
+              android:paddingHorizontal="10dp"
+              android:paddingVertical="9dp">
+
+              <TextView
+                  android:id="@+id/widget_item_index"
+                  android:layout_width="22dp"
+                  android:layout_height="22dp"
+                  android:background="@drawable/bg_widget_index"
+                  android:gravity="center"
+                  android:text="1"
+                  android:textColor="#73726C"
+                  android:textSize="11sp"
+                  android:textStyle="bold" />
+
+              <TextView
+                  android:id="@+id/widget_item_text"
+                  android:layout_width="0dp"
+                  android:layout_height="wrap_content"
+                  android:layout_marginHorizontal="10dp"
+                  android:layout_weight="1"
+                  android:ellipsize="end"
+                  android:maxLines="2"
+                  android:text="微习惯任务项"
+                  android:textColor="#262624"
+                  android:textSize="13sp"
+                  android:textStyle="bold" />
+
+              <FrameLayout
+                  android:layout_width="46dp"
+                  android:layout_height="24dp"
+                  android:background="@drawable/bg_widget_switch_track"
+                  android:padding="2dp">
+
+                  <View
+                      android:layout_width="20dp"
+                      android:layout_height="20dp"
+                      android:layout_gravity="start|center_vertical"
+                      android:background="@drawable/bg_widget_switch_thumb_red" />
+              </FrameLayout>
+          </LinearLayout>
+          """)
+
+          # 12. HabitStorage.kt
+          write_file("app/src/main/java/com/habit/plastictracker/HabitStorage.kt", """
+          package com.habit.plastictracker
+
+          import android.content.Context
+          import org.json.JSONArray
+          import org.json.JSONObject
+          import java.text.SimpleDateFormat
+          import java.util.Date
+          import java.util.Locale
+
+          data class HabitItem(val id: String, val text: String)
+
+          object HabitStorage {
+              private const val PREF_NAME = "plastic_habit_prefs"
+              private const val KEY_HABITS = "habits_json"
+              private const val KEY_STATE = "daily_state_json"
+
+              private val DEFAULT_HABITS = listOf(
+                  "微习惯打卡项 AAA",
+                  "微习惯打卡项 BBB",
+                  "微习惯打卡项 CCC",
+                  "微习惯打卡项 DDD",
+                  "微习惯打卡项 EEE",
+                  "微习惯打卡项 FFF",
+                  "微习惯打卡项 GGG",
+                  "微习惯打卡项 HHH",
+                  "微习惯打卡项 III",
+                  "微习惯打卡项 JJJ"
+              )
+
+              fun getTodayString(): String {
+                  return SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+              }
+
+              private fun getDefaultHabitsJson(): String {
+                  val arr = JSONArray()
+                  DEFAULT_HABITS.forEachIndexed { idx, text ->
+                      val obj = JSONObject()
+                      obj.put("id", "h_${idx + 1}")
+                      obj.put("text", text)
+                      arr.put(obj)
+                  }
+                  return arr.toString()
+              }
+
+              fun getHabitsJson(context: Context): String {
+                  val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                  var json = prefs.getString(KEY_HABITS, null)
+                  if (json.isNullOrEmpty()) {
+                      json = getDefaultHabitsJson()
+                      prefs.edit().putString(KEY_HABITS, json).apply()
+                  }
+                  return json
+              }
+
+              fun setHabitsJson(context: Context, json: String) {
+                  val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                  prefs.edit().putString(KEY_HABITS, json).commit()
+              }
+
+              fun getDailyStateJson(context: Context): String {
+                  val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                  val today = getTodayString()
+                  val raw = prefs.getString(KEY_STATE, null)
+                  if (!raw.isNullOrEmpty()) {
+                      try {
+                          val obj = JSONObject(raw)
+                          if (obj.optString("date") == today) {
+                              return raw
+                          }
+                      } catch (_: Exception) {}
+                  }
+                  val fresh = JSONObject().apply {
+                      put("date", today)
+                      put("completedIds", JSONArray())
+                  }.toString()
+                  prefs.edit().putString(KEY_STATE, fresh).commit()
+                  return fresh
+              }
+
+              fun setDailyStateJson(context: Context, json: String) {
+                  val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                  prefs.edit().putString(KEY_STATE, json).commit()
+              }
+
+              fun getHabitsList(context: Context): List<HabitItem> {
+                  val list = mutableListOf<HabitItem>()
+                  try {
+                      val arr = JSONArray(getHabitsJson(context))
+                      for (i in 0 until arr.length()) {
+                          val o = arr.getJSONObject(i)
+                          list.add(HabitItem(o.getString("id"), o.getString("text")))
+                      }
+                  } catch (_: Exception) {}
+                  return list
+              }
+
+              fun getCompletedIds(context: Context): MutableList<String> {
+                  val list = mutableListOf<String>()
+                  try {
+                      val obj = JSONObject(getDailyStateJson(context))
+                      val arr = obj.optJSONArray("completedIds") ?: JSONArray()
+                      for (i in 0 until arr.length()) {
+                          list.add(arr.getString(i))
+                      }
+                  } catch (_: Exception) {}
+                  return list
+              }
+
+              fun completeHabit(context: Context, habitId: String) {
+                  val completed = getCompletedIds(context)
+                  if (!completed.contains(habitId)) {
+                      completed.add(habitId)
+                      val obj = JSONObject().apply {
+                          put("date", getTodayString())
+                          put("completedIds", JSONArray(completed))
+                      }
+                      setDailyStateJson(context, obj.toString())
+                  }
+              }
+
+              fun resetToday(context: Context) {
+                  val obj = JSONObject().apply {
+                      put("date", getTodayString())
+                      put("completedIds", JSONArray())
+                  }
+                  setDailyStateJson(context, obj.toString())
+              }
+          }
+          """)
+
+          # 13. HabitWidgetProvider.kt
+          write_file("app/src/main/java/com/habit/plastictracker/HabitWidgetProvider.kt", """
+          package com.habit.plastictracker
+
+          import android.app.PendingIntent
+          import android.appwidget.AppWidgetManager
+          import android.appwidget.AppWidgetProvider
+          import android.content.ComponentName
+          import android.content.Context
+          import android.content.Intent
+          import android.net.Uri
+          import android.os.Build
+          import android.os.VibrationEffect
+          import android.os.Vibrator
+          import android.os.VibratorManager
+          import android.view.View
+          import android.widget.RemoteViews
+
+          class HabitWidgetProvider : AppWidgetProvider() {
+
+              override fun onUpdate(
+                  context: Context,
+                  appWidgetManager: AppWidgetManager,
+                  appWidgetIds: IntArray
+              ) {
+                  for (appWidgetId in appWidgetIds) {
+                      updateSingleWidget(context, appWidgetManager, appWidgetId)
+                  }
+              }
+
+              override fun onReceive(context: Context, intent: Intent) {
+                  super.onReceive(context, intent)
+                  when (intent.action) {
+                      ACTION_COMPLETE_ITEM -> {
+                          val habitId = intent.getStringExtra(EXTRA_HABIT_ID)
+                          if (!habitId.isNullOrEmpty()) {
+                              triggerHaptic(context)
+                              HabitStorage.completeHabit(context, habitId)
+                              notifyAllWidgetsAndApp(context)
+                          }
+                      }
+                      ACTION_RESET_WIDGET -> {
+                          triggerHaptic(context)
+                          HabitStorage.resetToday(context)
+                          notifyAllWidgetsAndApp(context)
+                      }
+                      ACTION_SYNC_WIDGET -> {
+                          refreshAllWidgets(context)
+                      }
+                  }
+              }
+
+              companion object {
+                  const val ACTION_COMPLETE_ITEM = "com.habit.plastictracker.ACTION_COMPLETE_ITEM"
+                  const val ACTION_RESET_WIDGET = "com.habit.plastictracker.ACTION_RESET_WIDGET"
+                  const val ACTION_SYNC_WIDGET = "com.habit.plastictracker.ACTION_SYNC_WIDGET"
+                  const val ACTION_APP_SYNC = "com.habit.plastictracker.ACTION_APP_SYNC"
+                  const val EXTRA_HABIT_ID = "extra_habit_id"
+
+                  fun refreshAllWidgets(context: Context) {
+                      val mgr = AppWidgetManager.getInstance(context)
+                      val cn = ComponentName(context, HabitWidgetProvider::class.java)
+                      val ids = mgr.getAppWidgetIds(cn)
+                      if (ids.isNotEmpty()) {
+                          mgr.notifyAppWidgetViewDataChanged(ids, R.id.widget_list_view)
+                          for (id in ids) {
+                              updateSingleWidget(context, mgr, id)
+                          }
+                      }
+                  }
+
+                  fun notifyAllWidgetsAndApp(context: Context) {
+                      refreshAllWidgets(context)
+                      val appIntent = Intent(ACTION_APP_SYNC).apply {
+                          setPackage(context.packageName)
+                      }
+                      context.sendBroadcast(appIntent)
+                  }
+
+                  private fun triggerHaptic(context: Context) {
+                      try {
+                          val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                              val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+                              vm.defaultVibrator
+                          } else {
+                              @Suppress("DEPRECATION")
+                              context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+                          }
+                          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                              vibrator.vibrate(VibrationEffect.createOneShot(35, VibrationEffect.DEFAULT_AMPLITUDE))
+                          } else {
+                              @Suppress("DEPRECATION")
+                              vibrator.vibrate(35)
+                          }
+                      } catch (_: Exception) {}
+                  }
+
+                  fun updateSingleWidget(
+                      context: Context,
+                      appWidgetManager: AppWidgetManager,
+                      appWidgetId: Int
+                  ) {
+                      val views = RemoteViews(context.packageName, R.layout.widget_habit_board)
+
+                      val habits = HabitStorage.getHabitsList(context)
+                      val completedSet = HabitStorage.getCompletedIds(context).toSet()
+                      val validDoneCount = habits.count { completedSet.contains(it.id) }
+                      val total = habits.size
+                      val remain = (total - validDoneCount).coerceAtLeast(0)
+
+                      views.setTextViewText(R.id.widget_progress, "剩余 $remain / $total")
+
+                      if (remain == 0 && total > 0) {
+                          views.setViewVisibility(R.id.widget_list_view, View.GONE)
+                          views.setViewVisibility(R.id.widget_empty_view, View.VISIBLE)
+                      } else {
+                          views.setViewVisibility(R.id.widget_list_view, View.VISIBLE)
+                          views.setViewVisibility(R.id.widget_empty_view, View.GONE)
+                      }
+
+                      val serviceIntent = Intent(context, HabitWidgetService::class.java).apply {
+                          putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+                          data = Uri.parse(toUri(Intent.URI_INTENT_SCHEME))
+                      }
+                      views.setRemoteAdapter(R.id.widget_list_view, serviceIntent)
+
+                      val clickIntent = Intent(context, HabitWidgetProvider::class.java).apply {
+                          action = ACTION_COMPLETE_ITEM
+                      }
+                      val clickPendingIntent = PendingIntent.getBroadcast(
+                          context,
+                          0,
+                          clickIntent,
+                          PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+                      )
+                      views.setPendingIntentTemplate(R.id.widget_list_view, clickPendingIntent)
+
+                      val resetIntent = Intent(context, HabitWidgetProvider::class.java).apply {
+                          action = ACTION_RESET_WIDGET
+                      }
+                      val resetPendingIntent = PendingIntent.getBroadcast(
+                          context,
+                          1,
+                          resetIntent,
+                          PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                      )
+                      views.setOnClickPendingIntent(R.id.widget_btn_reset, resetPendingIntent)
+
+                      val openAppIntent = Intent(context, MainActivity::class.java)
+                      val openAppPendingIntent = PendingIntent.getActivity(
+                          context,
+                          2,
+                          openAppIntent,
+                          PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                      )
+                      views.setOnClickPendingIntent(R.id.widget_title, openAppPendingIntent)
+
+                      appWidgetManager.updateAppWidget(appWidgetId, views)
+                  }
+              }
+          }
+          """)
+
+          # 14. HabitWidgetService.kt
+          write_file("app/src/main/java/com/habit/plastictracker/HabitWidgetService.kt", """
+          package com.habit.plastictracker
+
+          import android.content.Context
+          import android.content.Intent
+          import android.widget.RemoteViews
+          import android.widget.RemoteViewsService
+
+          class HabitWidgetService : RemoteViewsService() {
+              override fun onGetViewFactory(intent: Intent): RemoteViewsFactory {
+                  return HabitRemoteViewsFactory(applicationContext)
+              }
+          }
+
+          class HabitRemoteViewsFactory(private val context: Context) : RemoteViewsService.RemoteViewsFactory {
+
+              private data class PendingEntry(val originalIndex: Int, val item: HabitItem)
+              private var pendingList: List<PendingEntry> = emptyList()
+
+              override fun onCreate() {
+                  loadData()
+              }
+
+              override fun onDataSetChanged() {
+                  loadData()
+              }
+
+              private fun loadData() {
+                  val allHabits = HabitStorage.getHabitsList(context)
+                  val completedSet = HabitStorage.getCompletedIds(context).toSet()
+                  pendingList = allHabits.mapIndexedNotNull { idx, habit ->
+                      if (!completedSet.contains(habit.id)) {
+                          PendingEntry(idx + 1, habit)
+                      } else {
+                          null
+                      }
+                  }
+              }
+
+              override fun onDestroy() {
+                  pendingList = emptyList()
+              }
+
+              override fun getCount(): Int = pendingList.size
+
+              override fun getViewAt(position: Int): RemoteViews {
+                  if (position < 0 || position >= pendingList.size) {
+                      return RemoteViews(context.packageName, R.layout.widget_habit_item)
+                  }
+                  val entry = pendingList[position]
+                  val views = RemoteViews(context.packageName, R.layout.widget_habit_item)
+                  views.setTextViewText(R.id.widget_item_index, entry.originalIndex.toString())
+                  views.setTextViewText(R.id.widget_item_text, entry.item.text)
+
+                  val fillInIntent = Intent().apply {
+                      putExtra(HabitWidgetProvider.EXTRA_HABIT_ID, entry.item.id)
+                  }
+                  views.setOnClickFillInIntent(R.id.widget_item_container, fillInIntent)
+                  return views
+              }
+
+              override fun getLoadingView(): RemoteViews? = null
+              override fun getViewTypeCount(): Int = 1
+              override fun getItemId(position: Int): Long = position.toLong()
+              override fun hasStableIds(): Boolean = false
+          }
+          """)
+
+          # 15. MainActivity.kt
+          write_file("app/src/main/java/com/habit/plastictracker/MainActivity.kt", """
+          package com.habit.plastictracker
+
+          import android.annotation.SuppressLint
+          import android.content.BroadcastReceiver
+          import android.content.Context
+          import android.content.Intent
+          import android.content.IntentFilter
+          import android.graphics.Color
+          import android.os.Build
+          import android.os.Bundle
+          import android.os.VibrationEffect
+          import android.os.Vibrator
+          import android.os.VibratorManager
+          import android.webkit.JavascriptInterface
+          import android.webkit.WebChromeClient
+          import android.webkit.WebSettings
+          import android.webkit.WebView
+          import android.webkit.WebViewClient
+          import androidx.appcompat.app.AppCompatActivity
+          import androidx.core.view.WindowInsetsControllerCompat
+
+          class MainActivity : AppCompatActivity() {
+
+              private lateinit var webView: WebView
+
+              private val widgetSyncReceiver = object : BroadcastReceiver() {
+                  override fun onReceive(context: Context?, intent: Intent?) {
+                      if (intent?.action == HabitWidgetProvider.ACTION_APP_SYNC) {
+                          runOnUiThread {
+                              webView.evaluateJavascript("if(window.__syncFromNative){window.__syncFromNative();}", null)
+                          }
+                      }
+                  }
+              }
+
+              @SuppressLint("SetJavaScriptEnabled")
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+
+                  webView = WebView(this)
+                  setContentView(webView)
+
+                  webView.settings.apply {
+                      javaScriptEnabled = true
+                      domStorageEnabled = true
+                      allowFileAccess = true
+                      cacheMode = WebSettings.LOAD_DEFAULT
+                      useWideViewPort = true
+                      loadWithOverviewMode = true
+                  }
+
+                  webView.webChromeClient = WebChromeClient()
+                  webView.webViewClient = object : WebViewClient() {
+                      override fun onPageFinished(view: WebView?, url: String?) {
+                          super.onPageFinished(view, url)
+                          webView.evaluateJavascript("if(window.__syncFromNative){window.__syncFromNative();}", null)
+                      }
+                  }
+
+                  webView.addJavascriptInterface(NativeBridge(), "AndroidBridge")
+                  webView.loadUrl("file:///android_asset/index.html")
+
+                  val filter = IntentFilter(HabitWidgetProvider.ACTION_APP_SYNC)
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                      registerReceiver(widgetSyncReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+                  } else {
+                      registerReceiver(widgetSyncReceiver, filter)
+                  }
+              }
+
+              override fun onResume() {
+                  super.onResume()
+                  HabitWidgetProvider.refreshAllWidgets(this)
+                  webView.evaluateJavascript("if(window.__syncFromNative){window.__syncFromNative();}", null)
+              }
+
+              override fun onDestroy() {
+                  try {
+                      unregisterReceiver(widgetSyncReceiver)
+                  } catch (_: Exception) {}
+                  super.onDestroy()
+              }
+
+              inner class NativeBridge {
+                  @JavascriptInterface
+                  fun getHabitsJson(): String {
+                      return HabitStorage.getHabitsJson(this@MainActivity)
+                  }
+
+                  @JavascriptInterface
+                  fun saveHabitsJson(json: String) {
+                      HabitStorage.setHabitsJson(this@MainActivity, json)
+                      HabitWidgetProvider.refreshAllWidgets(this@MainActivity)
+                  }
+
+                  @JavascriptInterface
+                  fun getDailyStateJson(): String {
+                      return HabitStorage.getDailyStateJson(this@MainActivity)
+                  }
+
+                  @JavascriptInterface
+                  fun saveDailyStateJson(json: String) {
+                      HabitStorage.setDailyStateJson(this@MainActivity, json)
+                      HabitWidgetProvider.refreshAllWidgets(this@MainActivity)
+                  }
+
+                  @JavascriptInterface
+                  fun getWeeklyHistoryJson(): String {
+                      val prefs = getSharedPreferences("plastic_habit_prefs", Context.MODE_PRIVATE)
+                      return prefs.getString("weekly_history_json", "{}") ?: "{}"
+                  }
+
+                  @JavascriptInterface
+                  fun saveWeeklyHistoryJson(json: String) {
+                      val prefs = getSharedPreferences("plastic_habit_prefs", Context.MODE_PRIVATE)
+                      prefs.edit().putString("weekly_history_json", json).commit()
+                  }
+
+                  @JavascriptInterface
+                  fun vibrate() {
+                      try {
+                          val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                              val vm = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+                              vm.defaultVibrator
+                          } else {
+                              @Suppress("DEPRECATION")
+                              getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+                          }
+                          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                              vibrator.vibrate(VibrationEffect.createOneShot(35, VibrationEffect.DEFAULT_AMPLITUDE))
+                          } else {
+                              @Suppress("DEPRECATION")
+                              vibrator.vibrate(35)
+                          }
+                      } catch (_: Exception) {}
+                  }
+
+                  @JavascriptInterface
+                  fun setSystemBarsDark(isDark: Boolean) {
+                      runOnUiThread {
+                          val color = if (isDark) Color.parseColor("#1e1f22") else Color.parseColor("#e7e6e1")
+                          window.statusBarColor = color
+                          window.navigationBarColor = color
+                          val controller = WindowInsetsControllerCompat(window, window.decorView)
+                          controller.isAppearanceLightStatusBars = !isDark
+                          controller.isAppearanceLightNavigationBars = !isDark
+                      }
+                  }
+              }
+          }
+          """)
+
+          # 16. Embed HTML into app/src/main/assets/index.html with Generic Default Items (AAA - JJJ)
+          html_content = r"""<!DOCTYPE html>
+          <html lang="zh-CN">
+          <head>
+            <meta charset="UTF-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+            <meta name="theme-color" content="#e5e5e0" id="theme-color-meta" />
+            <meta name="apple-mobile-web-app-capable" content="yes" />
+            <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+            <meta name="apple-mobile-web-app-title" content="每日打卡" />
+            <meta name="mobile-web-app-capable" content="yes" />
+            <title>每日微习惯打卡器</title>
+            <script src="https://cdn.tailwindcss.com"></script>
+            <style>
+              @import url('https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800&display=swap');
+
+              :root {
+                --board-bg: #e7e6e1;
+                --board-shadow-light: #ffffff;
+                --board-shadow-dark: #c5c4be;
+                --slot-bg: #dcdbd5;
+                --paper-bg: #faf9f5;
+                --paper-border: #d1d0c9;
+                --text-main: #262624;
+                --text-muted: #73726c;
+                --track-bg: #d4d3cd;
+                --accent-red: #e04f44;
+                --accent-green: #22a06b;
+              }
+
+              html.dark {
+                --board-bg: #1e1f22;
+                --board-shadow-light: #2a2c30;
+                --board-shadow-dark: #121315;
+                --slot-bg: #161719;
+                --paper-bg: #26282c;
+                --paper-border: #36383e;
+                --text-main: #ececef;
+                --text-muted: #94969e;
+                --track-bg: #141517;
+                --accent-red: #e5534b;
+                --accent-green: #2ea043;
+              }
+
+              * {
+                box-sizing: border-box;
+                -webkit-tap-highlight-color: transparent;
+                user-select: none;
+              }
+
+              body {
+                font-family: 'Inter', -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+                background-color: var(--board-bg);
+                color: var(--text-main);
+                margin: 0;
+                padding: env(safe-area-inset-top, 16px) 16px env(safe-area-inset-bottom, 24px) 16px;
+                min-height: 100dvh;
+                transition: background-color 0.25s ease, color 0.25s ease;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+              }
+
+              .plastic-board {
+                width: 100%;
+                max-width: 480px;
+                background: var(--board-bg);
+                border-radius: 28px;
+                padding: 20px 16px;
+                box-shadow:
+                  10px 10px 22px var(--board-shadow-dark),
+                  -8px -8px 18px var(--board-shadow-light),
+                  inset 0 1px 1px rgba(255, 255, 255, 0.25);
+                border: 1px solid rgba(128, 128, 128, 0.15);
+                display: flex;
+                flex-direction: column;
+                gap: 16px;
+                margin-top: 8px;
+              }
+
+              .header-plate {
+                background: var(--slot-bg);
+                border-radius: 18px;
+                padding: 14px 16px;
+                box-shadow:
+                  inset 3px 3px 6px var(--board-shadow-dark),
+                  inset -2px -2px 5px var(--board-shadow-light);
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+              }
+
+              .led-dot {
+                height: 8px;
+                flex: 1;
+                border-radius: 999px;
+                background: var(--track-bg);
+                box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.25);
+                transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+              }
+
+              .led-dot.done {
+                background: var(--accent-green);
+                box-shadow: 0 0 8px rgba(34, 160, 107, 0.65);
+              }
+
+              .habit-wrapper {
+                overflow: hidden;
+                max-height: 92px;
+                margin-bottom: 10px;
+                opacity: 1;
+                transform: translateY(0) scale(1);
+                transition:
+                  max-height 0.32s cubic-bezier(0.4, 0, 0.2, 1),
+                  margin-bottom 0.32s cubic-bezier(0.4, 0, 0.2, 1),
+                  opacity 0.24s ease,
+                  transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+              }
+
+              .habit-wrapper.collapsing {
+                max-height: 0 !important;
+                margin-bottom: 0 !important;
+                opacity: 0;
+                transform: translateX(28px) scale(0.96);
+                pointer-events: none;
+              }
+
+              .habit-slot {
+                background: var(--paper-bg);
+                border: 1px solid var(--paper-border);
+                border-radius: 16px;
+                padding: 12px 14px;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                cursor: pointer;
+                box-shadow:
+                  0 3px 6px rgba(0, 0, 0, 0.05),
+                  inset 0 1px 0 rgba(255, 255, 255, 0.3);
+                transition: transform 0.1s ease, background-color 0.2s ease;
+              }
+
+              .habit-slot:active {
+                transform: scale(0.985);
+              }
+
+              .habit-index {
+                font-size: 12px;
+                font-weight: 800;
+                color: var(--text-muted);
+                background: var(--slot-bg);
+                width: 24px;
+                height: 24px;
+                border-radius: 7px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                flex-shrink: 0;
+                box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.12);
+              }
+
+              .habit-text {
+                font-size: 16px;
+                font-weight: 600;
+                line-height: 1.35;
+                color: var(--text-main);
+                flex: 1;
+                word-break: break-word;
+              }
+
+              .plastic-switch {
+                width: 64px;
+                height: 34px;
+                border-radius: 10px;
+                background: var(--track-bg);
+                padding: 3px;
+                position: relative;
+                flex-shrink: 0;
+                box-shadow:
+                  inset 2px 2px 5px rgba(0, 0, 0, 0.28),
+                  inset -1px -1px 2px rgba(255, 255, 255, 0.2);
+                display: flex;
+                align-items: center;
+              }
+
+              .switch-thumb {
+                width: 28px;
+                height: 28px;
+                border-radius: 7px;
+                background: var(--accent-red);
+                box-shadow:
+                  0 2px 4px rgba(0, 0, 0, 0.3),
+                  inset 0 1px 1px rgba(255, 255, 255, 0.45);
+                transform: translateX(0);
+                transition:
+                  transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
+                  background-color 0.18s ease;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+              }
+
+              .switch-thumb::after {
+                content: "";
+                width: 10px;
+                height: 12px;
+                border-left: 2px solid rgba(255, 255, 255, 0.45);
+                border-right: 2px solid rgba(255, 255, 255, 0.45);
+              }
+
+              .habit-slot.checked .switch-thumb {
+                transform: translateX(30px);
+                background: var(--accent-green);
+              }
+
+              .tactile-btn {
+                background: var(--board-bg);
+                color: var(--text-main);
+                border: 1px solid var(--paper-border);
+                border-radius: 12px;
+                padding: 9px 12px;
+                font-size: 13px;
+                font-weight: 600;
+                box-shadow:
+                  3px 3px 6px var(--board-shadow-dark),
+                  -2px -2px 5px var(--board-shadow-light);
+                transition: all 0.12s ease;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 5px;
+                cursor: pointer;
+              }
+
+              .tactile-btn:active:not(:disabled) {
+                box-shadow:
+                  inset 2px 2px 4px var(--board-shadow-dark),
+                  inset -2px -2px 4px var(--board-shadow-light);
+                transform: scale(0.97);
+              }
+
+              .tactile-btn:disabled {
+                opacity: 0.4;
+                cursor: not-allowed;
+                box-shadow: none;
+              }
+
+              @keyframes popIn {
+                0% { opacity: 0; transform: scale(0.88); }
+                70% { opacity: 1; transform: scale(1.03); }
+                100% { opacity: 1; transform: scale(1); }
+              }
+
+              .victory-badge {
+                animation: popIn 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+              }
+            </style>
+          </head>
+          <body>
+
+            <main class="plastic-board" id="app-board">
+              <header class="header-plate">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-bold tracking-wider uppercase px-2 py-0.5 rounded-md bg-black/5 dark:bg-white/10" id="date-display">2026-11-16</span>
+                      <span class="text-xs font-medium opacity-70" id="weekday-display">周一</span>
+                    </div>
+                    <h1 class="text-lg font-extrabold tracking-tight mt-1">每日微习惯打卡器</h1>
+                  </div>
+
+                  <div class="flex items-center gap-2">
+                    <!-- 周统计按钮 -->
+                    <button id="stats-btn" class="tactile-btn !p-2.5" title="查看本周打卡统计" aria-label="周统计">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                      </svg>
+                    </button>
+
+                    <!-- 音效开关 -->
+                    <button id="sound-toggle" class="tactile-btn !p-2.5" title="切换机械音效" aria-label="切换音效">
+                      <svg id="icon-sound-on" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M11 5L6 9H2v6h4l5 4V5zM15.54 8.46a5 5 0 010 7.07M19.07 4.93a10 10 0 010 14.14"/>
+                      </svg>
+                      <svg id="icon-sound-off" class="w-4 h-4 hidden opacity-50" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M11 5L6 9H2v6h4l5 4V5zM23 9l-6 6M17 9l6 6"/>
+                      </svg>
+                    </button>
+
+                    <!-- 夜间模式切换 -->
+                    <button id="theme-toggle" class="tactile-btn !p-2.5" title="切换深浅色主题" aria-label="切换主题">
+                      <svg id="icon-moon" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+                      </svg>
+                      <svg id="icon-sun" class="w-4 h-4 hidden" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="5"/><path stroke-linecap="round" d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="flex items-center gap-3 pt-1">
+                  <div class="flex-1 flex items-center gap-1.5" id="led-bar"></div>
+                  <div class="text-xs font-extrabold tabular-nums tracking-wide shrink-0" id="progress-text">
+                    剩余 10 / 10
+                  </div>
+                </div>
+              </header>
+
+              <section id="habit-list" class="flex flex-col min-h-[120px]"></section>
+
+              <section id="victory-panel" class="hidden victory-badge flex-col items-center justify-center text-center py-10 px-4 rounded-2xl border border-dashed" style="border-color: var(--paper-border); background: var(--paper-bg);">
+                <div class="w-16 h-16 rounded-2xl flex items-center justify-center mb-4 shadow-lg" style="background: var(--accent-green); color: #fff;">
+                  <svg class="w-9 h-9" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                  </svg>
+                </div>
+                <h2 class="text-xl font-extrabold tracking-tight">今日全部清零！</h2>
+                <p class="text-sm mt-2 opacity-75 leading-relaxed max-w-[260px]">
+                  所有微习惯已悉数完成，滑块已全部归位。好好休息，明天凌晨自动重置。
+                </p>
+              </section>
+
+              <footer class="grid grid-cols-3 gap-2.5 pt-1">
+                <button id="undo-btn" class="tactile-btn" disabled>
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 10h10a5 5 0 015 5v2M3 10l5-5M3 10l5 5"/>
+                  </svg>
+                  <span>撤销上步</span>
+                </button>
+
+                <button id="edit-btn" class="tactile-btn">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                  </svg>
+                  <span>编辑清单</span>
+                </button>
+
+                <button id="reset-btn" class="tactile-btn">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h5M20 20v-5h-5M20.49 9A9 9 0 005.64 5.64L4 7m16 10l-1.64 1.36A9 9 0 013.51 15"/>
+                  </svg>
+                  <span>手动重置</span>
+                </button>
+              </footer>
+            </main>
+
+            <!-- 周统计弹窗 -->
+            <div id="stats-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+              <div class="w-full max-w-md rounded-2xl p-5 shadow-2xl border flex flex-col max-h-[85dvh]" style="background: var(--paper-bg); border-color: var(--paper-border); color: var(--text-main);">
+                <div class="flex items-center justify-between pb-3 border-b" style="border-color: var(--paper-border);">
+                  <div>
+                    <h3 class="text-base font-extrabold">本周习惯完成状况</h3>
+                    <p class="text-xs opacity-70 mt-0.5">最近 7 天各项目累计打卡天数与热力矩阵</p>
+                  </div>
+                  <button id="stats-close-btn" class="tactile-btn !p-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                  </button>
+                </div>
+
+                <div id="stats-content" class="flex-1 overflow-y-auto py-3 flex flex-col gap-3"></div>
+
+                <div class="pt-3 border-t text-center text-xs opacity-60" style="border-color: var(--paper-border);">
+                  坚持是最好的复利，继续保持！
+                </div>
+              </div>
+            </div>
+
+            <div id="confirm-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+              <div class="w-full max-w-xs rounded-2xl p-5 shadow-2xl border" style="background: var(--paper-bg); border-color: var(--paper-border); color: var(--text-main);">
+                <h3 class="text-base font-extrabold">重置今日打卡状态？</h3>
+                <p class="text-xs opacity-75 mt-1.5 leading-relaxed">
+                  这会将今日所有已消除的滑块恢复为未完成状态，确定要重新开始吗？
+                </p>
+                <div class="grid grid-cols-2 gap-2.5 mt-5">
+                  <button id="confirm-cancel" class="tactile-btn">取消</button>
+                  <button id="confirm-ok" class="tactile-btn !text-white" style="background: var(--accent-red); border-color: transparent;">确定重置</button>
+                </div>
+              </div>
+            </div>
+
+            <div id="edit-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+              <div class="w-full max-w-md rounded-2xl p-5 shadow-2xl border flex flex-col max-h-[85dvh]" style="background: var(--paper-bg); border-color: var(--paper-border); color: var(--text-main);">
+                <div class="flex items-center justify-between pb-3 border-b" style="border-color: var(--paper-border);">
+                  <div>
+                    <h3 class="text-base font-extrabold">编辑打卡纸条清单</h3>
+                    <p class="text-xs opacity-70 mt-0.5">每行一项，保存后即刻生效并持久化</p>
+                  </div>
+                  <button id="restore-defaults-btn" class="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-black/5 dark:bg-white/10 hover:opacity-80">
+                    恢复默认10项
+                  </button>
+                </div>
+
+                <div id="edit-items-container" class="flex-1 overflow-y-auto py-3 flex flex-col gap-2"></div>
+
+                <button id="add-item-btn" class="w-full py-2.5 rounded-xl border border-dashed text-xs font-bold opacity-80 hover:opacity-100 mb-3" style="border-color: var(--text-muted);">
+                  + 添加一条新微习惯
+                </button>
+
+                <div class="grid grid-cols-2 gap-2.5 pt-2 border-t" style="border-color: var(--paper-border);">
+                  <button id="edit-cancel" class="tactile-btn">取消</button>
+                  <button id="edit-save" class="tactile-btn !text-white" style="background: var(--accent-green); border-color: transparent;">保存清单</button>
+                </div>
+              </div>
+            </div>
+
+            <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full text-xs font-bold shadow-lg opacity-0 pointer-events-none transition-opacity duration-200" style="background: var(--text-main); color: var(--paper-bg);">
+              已更新
+            </div>
+
+            <script>
+              (function () {
+                const DEFAULT_HABITS = [
+                  "微习惯打卡项 AAA",
+                  "微习惯打卡项 BBB",
+                  "微习惯打卡项 CCC",
+                  "微习惯打卡项 DDD",
+                  "微习惯打卡项 EEE",
+                  "微习惯打卡项 FFF",
+                  "微习惯打卡项 GGG",
+                  "微习惯打卡项 HHH",
+                  "微习惯打卡项 III",
+                  "微习惯打卡项 JJJ"
+                ];
+
+                const STORAGE_KEYS = {
+                  HABITS: 'plastic_tracker_habits_v1',
+                  STATE: 'plastic_tracker_daily_state_v1',
+                  HISTORY: 'plastic_tracker_weekly_history_v1',
+                  THEME: 'plastic_tracker_theme_v1',
+                  SOUND: 'plastic_tracker_sound_v1'
+                };
+
+                const hasBridge = typeof window.AndroidBridge !== 'undefined';
+
+                function setupPWA() {
+                  const svgIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="112" fill="#e7e6e1"/><rect x="64" y="96" width="384" height="120" rx="32" fill="#faf9f5" stroke="#d1d0c9" stroke-width="8"/><rect x="304" y="122" width="112" height="68" rx="18" fill="#22a06b"/><rect x="64" y="296" width="384" height="120" rx="32" fill="#faf9f5" stroke="#d1d0c9" stroke-width="8"/><rect x="96" y="322" width="112" height="68" rx="18" fill="#e04f44"/></svg>`;
+                  const iconUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgIcon);
+
+                  const appleIcon = document.createElement('link');
+                  appleIcon.rel = 'apple-touch-icon';
+                  appleIcon.href = iconUrl;
+                  document.head.appendChild(appleIcon);
+
+                  const manifest = {
+                    name: '每日微习惯塑料打卡器',
+                    short_name: '每日打卡',
+                    start_url: '.',
+                    display: 'standalone',
+                    background_color: '#e7e6e1',
+                    theme_color: '#e7e6e1',
+                    icons: [{ src: iconUrl, sizes: '512x512', type: 'image/svg+xml', purpose: 'any maskable' }]
+                  };
+                  const manifestBlob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
+                  const manifestLink = document.createElement('link');
+                  manifestLink.rel = 'manifest';
+                  manifestLink.href = URL.createObjectURL(manifestBlob);
+                  document.head.appendChild(manifestLink);
+                }
+
+                function getTodayString() {
+                  const now = new Date();
+                  const y = now.getFullYear();
+                  const m = String(now.getMonth() + 1).padStart(2, '0');
+                  const d = String(now.getDate()).padStart(2, '0');
+                  return `${y}-${m}-${d}`;
+                }
+
+                function getWeekdayString() {
+                  const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+                  return days[new Date().getDay()];
+                }
+
+                function getLast7Days() {
+                  const dates = [];
+                  for (let i = 6; i >= 0; i--) {
+                    const d = new Date();
+                    d.setDate(d.getDate() - i);
+                    const y = d.getFullYear();
+                    const m = String(d.getMonth() + 1).padStart(2, '0');
+                    const day = String(d.getDate()).padStart(2, '0');
+                    dates.push(`${y}-${m}-${day}`);
+                  }
+                  return dates;
+                }
+
+                let audioCtx = null;
+                function playClickSound(isUndo = false) {
+                  if (!state.soundEnabled) return;
+                  try {
+                    if (!audioCtx) {
+                      const AudioContext = window.AudioContext || window.webkitAudioContext;
+                      audioCtx = new AudioContext();
+                    }
+                    if (audioCtx.state === 'suspended') {
+                      audioCtx.resume();
+                    }
+                    const now = audioCtx.currentTime;
+
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(isUndo ? 420 : 680, now);
+                    osc.frequency.exponentialRampToValueAtTime(isUndo ? 180 : 140, now + 0.045);
+
+                    gain.gain.setValueAtTime(0.35, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.045);
+
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.05);
+                  } catch (e) {}
+                }
+
+                function triggerHaptic() {
+                  if (hasBridge && window.AndroidBridge.vibrate) {
+                    try {
+                      window.AndroidBridge.vibrate();
+                      return;
+                    } catch (e) {}
+                  }
+                  if (navigator.vibrate) {
+                    try {
+                      navigator.vibrate(35);
+                    } catch (e) {}
+                  }
+                }
+
+                let state = {
+                  habits: [],
+                  completedIds: [],
+                  history: {},
+                  currentDate: getTodayString(),
+                  soundEnabled: true,
+                  darkMode: false
+                };
+
+                function loadState() {
+                  try {
+                    let rawHabits = hasBridge ? window.AndroidBridge.getHabitsJson() : localStorage.getItem(STORAGE_KEYS.HABITS);
+                    const savedHabits = JSON.parse(rawHabits);
+                    if (Array.isArray(savedHabits) && savedHabits.length > 0) {
+                      state.habits = savedHabits;
+                    } else {
+                      state.habits = DEFAULT_HABITS.map((text, idx) => ({ id: 'h_' + (idx + 1), text }));
+                    }
+                    localStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(state.habits));
+                    if (hasBridge) window.AndroidBridge.saveHabitsJson(JSON.stringify(state.habits));
+
+                    let rawDaily = hasBridge ? window.AndroidBridge.getDailyStateJson() : localStorage.getItem(STORAGE_KEYS.STATE);
+                    const savedDaily = JSON.parse(rawDaily);
+                    const today = getTodayString();
+
+                    if (savedDaily && savedDaily.date === today && Array.isArray(savedDaily.completedIds)) {
+                      const validIds = new Set(state.habits.map(h => h.id));
+                      state.completedIds = savedDaily.completedIds.filter(id => validIds.has(id));
+                    } else {
+                      state.completedIds = [];
+                    }
+                    state.currentDate = today;
+
+                    let rawHistory = hasBridge && window.AndroidBridge.getWeeklyHistoryJson ? window.AndroidBridge.getWeeklyHistoryJson() : localStorage.getItem(STORAGE_KEYS.HISTORY);
+                    state.history = rawHistory ? JSON.parse(rawHistory) : {};
+                    state.history[today] = [...state.completedIds];
+                    saveDailyState();
+
+                    const savedSound = localStorage.getItem(STORAGE_KEYS.SOUND);
+                    state.soundEnabled = savedSound === null ? true : savedSound === 'true';
+
+                    const savedTheme = localStorage.getItem(STORAGE_KEYS.THEME);
+                    if (savedTheme) {
+                      state.darkMode = savedTheme === 'dark';
+                    } else {
+                      const hour = new Date().getHours();
+                      state.darkMode = (hour >= 19 || hour < 6);
+                    }
+                  } catch (e) {
+                    state.habits = DEFAULT_HABITS.map((text, idx) => ({ id: 'h_' + (idx + 1), text }));
+                    state.completedIds = [];
+                    state.history = {};
+                  }
+                }
+
+                function saveDailyState() {
+                  const today = state.currentDate;
+                  state.history[today] = [...state.completedIds];
+                  const dailyPayload = JSON.stringify({
+                    date: today,
+                    completedIds: state.completedIds
+                  });
+                  const historyPayload = JSON.stringify(state.history);
+                  try {
+                    localStorage.setItem(STORAGE_KEYS.STATE, dailyPayload);
+                    localStorage.setItem(STORAGE_KEYS.HISTORY, historyPayload);
+                    if (hasBridge) {
+                      window.AndroidBridge.saveDailyStateJson(dailyPayload);
+                      if (window.AndroidBridge.saveWeeklyHistoryJson) {
+                        window.AndroidBridge.saveWeeklyHistoryJson(historyPayload);
+                      }
+                    }
+                  } catch (e) {}
+                }
+
+                function saveHabitsList() {
+                  const payload = JSON.stringify(state.habits);
+                  try {
+                    localStorage.setItem(STORAGE_KEYS.HABITS, payload);
+                    if (hasBridge) window.AndroidBridge.saveHabitsJson(payload);
+                  } catch (e) {}
+                }
+
+                window.__syncFromNative = function () {
+                  if (!hasBridge) return;
+                  try {
+                    const savedHabits = JSON.parse(window.AndroidBridge.getHabitsJson());
+                    if (Array.isArray(savedHabits) && savedHabits.length > 0) {
+                      state.habits = savedHabits;
+                      localStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(state.habits));
+                    }
+                    const savedDaily = JSON.parse(window.AndroidBridge.getDailyStateJson());
+                    const today = getTodayString();
+                    if (savedDaily && savedDaily.date === today && Array.isArray(savedDaily.completedIds)) {
+                      const validIds = new Set(state.habits.map(h => h.id));
+                      state.completedIds = savedDaily.completedIds.filter(id => validIds.has(id));
+                    } else {
+                      state.completedIds = [];
+                    }
+                    state.currentDate = today;
+                    if (window.AndroidBridge.getWeeklyHistoryJson) {
+                      state.history = JSON.parse(window.AndroidBridge.getWeeklyHistoryJson() || '{}');
+                    }
+                    renderAll();
+                  } catch (e) {}
+                };
+
+                function checkDateRollover() {
+                  const today = getTodayString();
+                  if (today !== state.currentDate) {
+                    state.currentDate = today;
+                    state.completedIds = [];
+                    saveDailyState();
+                    renderAll();
+                    showToast('新的一天已开始，滑块已自动重置');
+                  }
+                }
+
+                function applyTheme() {
+                  const htmlEl = document.documentElement;
+                  const metaTheme = document.getElementById('theme-color-meta');
+                  const moonIcon = document.getElementById('icon-moon');
+                  const sunIcon = document.getElementById('icon-sun');
+
+                  if (state.darkMode) {
+                    htmlEl.classList.add('dark');
+                    metaTheme.setAttribute('content', '#1e1f22');
+                    moonIcon.classList.add('hidden');
+                    sunIcon.classList.remove('hidden');
+                  } else {
+                    htmlEl.classList.remove('dark');
+                    metaTheme.setAttribute('content', '#e7e6e1');
+                    moonIcon.classList.remove('hidden');
+                    sunIcon.classList.add('hidden');
+                  }
+                  if (hasBridge && window.AndroidBridge.setSystemBarsDark) {
+                    try { window.AndroidBridge.setSystemBarsDark(state.darkMode); } catch (e) {}
+                  }
+                }
+
+                function applySoundUI() {
+                  const onIcon = document.getElementById('icon-sound-on');
+                  const offIcon = document.getElementById('icon-sound-off');
+                  if (state.soundEnabled) {
+                    onIcon.classList.remove('hidden');
+                    offIcon.classList.add('hidden');
+                  } else {
+                    onIcon.classList.add('hidden');
+                    offIcon.classList.remove('hidden');
+                  }
+                }
+
+                let toastTimer = null;
+                function showToast(msg) {
+                  const toast = document.getElementById('toast');
+                  toast.textContent = msg;
+                  toast.classList.remove('opacity-0');
+                  clearTimeout(toastTimer);
+                  toastTimer = setTimeout(() => {
+                    toast.classList.add('opacity-0');
+                  }, 2000);
+                }
+
+                function renderHeader() {
+                  document.getElementById('date-display').textContent = state.currentDate;
+                  document.getElementById('weekday-display').textContent = getWeekdayString();
+
+                  const total = state.habits.length;
+                  const doneCount = state.completedIds.length;
+                  const remain = Math.max(0, total - doneCount);
+
+                  document.getElementById('progress-text').textContent = `剩余 ${remain} / ${total}`;
+
+                  const ledBar = document.getElementById('led-bar');
+                  ledBar.innerHTML = '';
+                  for (let i = 0; i < total; i++) {
+                    const dot = document.createElement('div');
+                    dot.className = 'led-dot' + (i < doneCount ? ' done' : '');
+                    ledBar.appendChild(dot);
+                  }
+
+                  const undoBtn = document.getElementById('undo-btn');
+                  undoBtn.disabled = state.completedIds.length === 0;
+                }
+
+                function renderList() {
+                  const listEl = document.getElementById('habit-list');
+                  const victoryEl = document.getElementById('victory-panel');
+                  listEl.innerHTML = '';
+
+                  const completedSet = new Set(state.completedIds);
+                  const pendingHabits = state.habits
+                    .map((item, originalIndex) => ({ ...item, originalIndex: originalIndex + 1 }))
+                    .filter(item => !completedSet.has(item.id));
+
+                  if (pendingHabits.length === 0 && state.habits.length > 0) {
+                    listEl.classList.add('hidden');
+                    victoryEl.classList.remove('hidden');
+                    victoryEl.classList.add('flex');
+                    return;
+                  } else {
+                    listEl.classList.remove('hidden');
+                    victoryEl.classList.add('hidden');
+                    victoryEl.classList.remove('flex');
+                  }
+
+                  pendingHabits.forEach(item => {
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'habit-wrapper';
+                    wrapper.dataset.id = item.id;
+
+                    const slot = document.createElement('div');
+                    slot.className = 'habit-slot';
+                    slot.setAttribute('role', 'button');
+                    slot.setAttribute('tabindex', '0');
+                    slot.setAttribute('aria-label', `完成：${item.text}`);
+
+                    slot.innerHTML = `
+                      <span class="habit-index">${item.originalIndex}</span>
+                      <span class="habit-text">${escapeHTML(item.text)}</span>
+                      <div class="plastic-switch" aria-hidden="true">
+                        <div class="switch-thumb"></div>
+                      </div>
+                    `;
+
+                    let isProcessing = false;
+                    slot.addEventListener('click', () => {
+                      if (isProcessing) return;
+                      isProcessing = true;
+
+                      slot.classList.add('checked');
+                      triggerHaptic();
+                      playClickSound(false);
+
+                      if (!state.completedIds.includes(item.id)) {
+                        state.completedIds.push(item.id);
+                        saveDailyState();
+                      }
+                      renderHeader();
+
+                      setTimeout(() => {
+                        wrapper.classList.add('collapsing');
+                        setTimeout(() => {
+                          wrapper.remove();
+                          if (state.completedIds.length >= state.habits.length) {
+                            renderList();
+                          }
+                        }, 320);
+                      }, 300);
+                    });
+
+                    wrapper.appendChild(slot);
+                    listEl.appendChild(wrapper);
+                  });
+                }
+
+                function renderStatsModal() {
+                  const container = document.getElementById('stats-content');
+                  container.innerHTML = '';
+
+                  const last7Days = getLast7Days();
+                  const dayLabels = last7Days.map(dateStr => {
+                    const parts = dateStr.split('-');
+                    return `${parts[1]}-${parts[2]}`;
+                  });
+
+                  state.habits.forEach((habit, idx) => {
+                    let completedDaysCount = 0;
+                    const dayStatus = last7Days.map(dateStr => {
+                      const dayCompletedIds = state.history[dateStr] || [];
+                      const done = dayCompletedIds.includes(habit.id);
+                      if (done) completedDaysCount++;
+                      return done;
+                    });
+
+                    const itemCard = document.createElement('div');
+                    itemCard.className = 'p-3 rounded-xl border flex flex-col gap-2';
+                    itemCard.style.borderColor = 'var(--paper-border)';
+                    itemCard.style.background = 'var(--board-bg)';
+
+                    let dotsHtml = '';
+                    dayStatus.forEach((done, dIdx) => {
+                      const bg = done ? 'var(--accent-green)' : 'var(--track-bg)';
+                      const title = `${last7Days[dIdx]}: ${done ? '已完成' : '未完成'}`;
+                      dotsHtml += `<div class="flex-1 h-3 rounded-sm" style="background: ${bg};" title="${title}"></div>`;
+                    });
+
+                    itemCard.innerHTML = `
+                      <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                          <span class="text-xs font-extrabold px-1.5 py-0.5 rounded" style="background: var(--slot-bg); color: var(--text-muted);">${idx + 1}</span>
+                          <span class="text-sm font-bold truncate max-w-[220px]">${escapeHTML(habit.text)}</span>
+                        </div>
+                        <span class="text-xs font-extrabold px-2 py-0.5 rounded-full" style="background: var(--slot-bg);">近7天 ${completedDaysCount}/7 天</span>
+                      </div>
+                      <div class="flex items-center gap-1 mt-1">
+                        ${dotsHtml}
+                      </div>
+                      <div class="flex justify-between text-[10px] opacity-50 px-0.5">
+                        <span>${dayLabels[0]}</span>
+                        <span>今天</span>
+                      </div>
+                    `;
+                    container.appendChild(itemCard);
+                  });
+                }
+
+                function renderAll() {
+                  applyTheme();
+                  applySoundUI();
+                  renderHeader();
+                  renderList();
+                }
+
+                function escapeHTML(str) {
+                  const div = document.createElement('div');
+                  div.textContent = str;
+                  return div.innerHTML;
+                }
+
+                function bindEvents() {
+                  const statsModal = document.getElementById('stats-modal');
+                  document.getElementById('stats-btn').addEventListener('click', () => {
+                    renderStatsModal();
+                    statsModal.classList.remove('hidden');
+                    statsModal.classList.add('flex');
+                  });
+                  document.getElementById('stats-close-btn').addEventListener('click', () => {
+                    statsModal.classList.add('hidden');
+                    statsModal.classList.remove('flex');
+                  });
+
+                  document.getElementById('sound-toggle').addEventListener('click', () => {
+                    state.soundEnabled = !state.soundEnabled;
+                    localStorage.setItem(STORAGE_KEYS.SOUND, String(state.soundEnabled));
+                    applySoundUI();
+                    if (state.soundEnabled) playClickSound(false);
+                    showToast(state.soundEnabled ? '已开启机械音效' : '已静音');
+                  });
+
+                  document.getElementById('theme-toggle').addEventListener('click', () => {
+                    state.darkMode = !state.darkMode;
+                    localStorage.setItem(STORAGE_KEYS.THEME, state.darkMode ? 'dark' : 'light');
+                    applyTheme();
+                  });
+
+                  document.getElementById('undo-btn').addEventListener('click', () => {
+                    if (state.completedIds.length === 0) return;
+                    const lastId = state.completedIds.pop();
+                    saveDailyState();
+                    playClickSound(true);
+                    renderAll();
+                    const restored = state.habits.find(h => h.id === lastId);
+                    if (restored) {
+                      showToast(`已恢复：${restored.text}`);
+                    }
+                  });
+
+                  const confirmModal = document.getElementById('confirm-modal');
+                  document.getElementById('reset-btn').addEventListener('click', () => {
+                    confirmModal.classList.remove('hidden');
+                    confirmModal.classList.add('flex');
+                  });
+
+                  document.getElementById('confirm-cancel').addEventListener('click', () => {
+                    confirmModal.classList.add('hidden');
+                    confirmModal.classList.remove('flex');
+                  });
+
+                  document.getElementById('confirm-ok').addEventListener('click', () => {
+                    state.completedIds = [];
+                    saveDailyState();
+                    playClickSound(true);
+                    triggerHaptic();
+                    confirmModal.classList.add('hidden');
+                    confirmModal.classList.remove('flex');
+                    renderAll();
+                    showToast('今日滑块已全部归位');
+                  });
+
+                  const editModal = document.getElementById('edit-modal');
+                  const editContainer = document.getElementById('edit-items-container');
+
+                  function renderEditRows(itemsList) {
+                    editContainer.innerHTML = '';
+                    itemsList.forEach((item, index) => {
+                      const row = document.createElement('div');
+                      row.className = 'flex items-center gap-2';
+                      row.innerHTML = `
+                        <span class="text-xs font-bold opacity-50 w-5 text-center">${index + 1}</span>
+                        <input type="text" value="${escapeHTML(item.text)}" data-id="${item.id}"
+                          class="flex-1 px-3 py-2 rounded-xl text-sm font-medium border outline-none focus:ring-2"
+                          style="background: var(--board-bg); border-color: var(--paper-border); color: var(--text-main);"
+                          placeholder="输入微习惯内容..." />
+                        <button type="button" class="del-row-btn p-2 rounded-lg opacity-60 hover:opacity-100 text-red-500" title="删除此项">
+                          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                          </svg>
+                        </button>
+                      `;
+                      row.querySelector('.del-row-btn').addEventListener('click', () => {
+                        row.remove();
+                        Array.from(editContainer.children).forEach((r, idx) => {
+                          r.querySelector('span').textContent = idx + 1;
+                        });
+                      });
+                      editContainer.appendChild(row);
+                    });
+                  }
+
+                  document.getElementById('edit-btn').addEventListener('click', () => {
+                    renderEditRows(state.habits);
+                    editModal.classList.remove('hidden');
+                    editModal.classList.add('flex');
+                  });
+
+                  document.getElementById('add-item-btn').addEventListener('click', () => {
+                    const currentCount = editContainer.children.length;
+                    const newId = 'h_' + Date.now() + '_' + Math.floor(Math.random() * 100);
+                    const row = document.createElement('div');
+                    row.className = 'flex items-center gap-2';
+                    row.innerHTML = `
+                      <span class="text-xs font-bold opacity-50 w-5 text-center">${currentCount + 1}</span>
+                      <input type="text" value="" data-id="${newId}"
+                        class="flex-1 px-3 py-2 rounded-xl text-sm font-medium border outline-none focus:ring-2"
+                        style="background: var(--board-bg); border-color: var(--paper-border); color: var(--text-main);"
+                        placeholder="输入新微习惯..." />
+                      <button type="button" class="del-row-btn p-2 rounded-lg opacity-60 hover:opacity-100 text-red-500" title="删除此项">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                      </button>
+                    `;
+                    row.querySelector('.del-row-btn').addEventListener('click', () => {
+                      row.remove();
+                      Array.from(editContainer.children).forEach((r, idx) => {
+                        r.querySelector('span').textContent = idx + 1;
+                      });
+                    });
+                    editContainer.appendChild(row);
+                    row.querySelector('input').focus();
+                  });
+
+                  document.getElementById('restore-defaults-btn').addEventListener('click', () => {
+                    const defaults = DEFAULT_HABITS.map((text, idx) => ({ id: 'h_' + (idx + 1), text }));
+                    renderEditRows(defaults);
+                    showToast('已载入默认10项，点击保存生效');
+                  });
+
+                  document.getElementById('edit-cancel').addEventListener('click', () => {
+                    editModal.classList.add('hidden');
+                    editModal.classList.remove('flex');
+                  });
+
+                  document.getElementById('edit-save').addEventListener('click', () => {
+                    const inputs = Array.from(editContainer.querySelectorAll('input'));
+                    const updatedHabits = inputs
+                      .map(inp => ({ id: inp.dataset.id, text: inp.value.trim() }))
+                      .filter(item => item.text.length > 0);
+
+                    if (updatedHabits.length === 0) {
+                      showToast('请至少保留一项打卡内容');
+                      return;
+                    }
+
+                    state.habits = updatedHabits;
+                    const validIds = new Set(state.habits.map(h => h.id));
+                    state.completedIds = state.completedIds.filter(id => validIds.has(id));
+
+                    saveHabitsList();
+                    saveDailyState();
+                    editModal.classList.add('hidden');
+                    editModal.classList.remove('flex');
+                    renderAll();
+                    showToast('纸条清单已保存');
+                  });
+
+                  document.addEventListener('visibilitychange', () => {
+                    if (document.visibilityState === 'visible') {
+                      checkDateRollover();
+                    }
+                  });
+                  setInterval(checkDateRollover, 60000);
+                }
+
+                setupPWA();
+                loadState();
+                bindEvents();
+                renderAll();
+              })();
+            </script>
+          </body>
+          </html>"""
+          write_file("app/src/main/assets/index.html", html_content)
+
+          print("Generic version generated successfully!")
+          EOF
+
+      - name: Initialize Gradle Wrapper
+        run: gradle wrapper --gradle-version 8.5
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DailyHabitTracker-Generic-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
