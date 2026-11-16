@@ -19,8 +19,11 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Set up Android SDK Environment
+        run: |
+          echo "ANDROID_HOME=$HOME/android-sdk" >> $GITHUB_ENV
+          mkdir -p $HOME/android-sdk
+          # 自动生成正确的 android/sdk 路径，不依赖第三方问题插件
 
       - name: Generate Android Project Structure & Source Code
         run: |
