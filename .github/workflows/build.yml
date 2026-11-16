@@ -19,11 +19,8 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Set up Android SDK Environment
-        run: |
-          echo "ANDROID_HOME=$HOME/android-sdk" >> $GITHUB_ENV
-          mkdir -p $HOME/android-sdk
-          # 自动生成正确的 android/sdk 路径，不依赖第三方问题插件
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
       - name: Generate Android Project Structure & Source Code
         run: |
@@ -970,7 +967,7 @@ jobs:
           }
           """)
 
-          # 16. Embed HTML into app/src/main/assets/index.html
+          # 16. Embed HTML into app/src/main/assets/index.html with Generic Default Items (AAA - JJJ)
           html_content = r"""<!DOCTYPE html>
           <html lang="zh-CN">
           <head>
@@ -2012,3 +2009,5 @@ jobs:
           name: DailyHabitTracker-Generic-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
+
+
