@@ -8,6 +8,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
 
     steps:
       - name: Checkout repository
@@ -19,8 +22,11 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Accept Android SDK licenses & ensure required SDK components
+        run: |
+          yes | $ANDROID_SDK_ROOT/cmdline-tools/16.0/bin/sdkmanager --licenses
+          $ANDROID_SDK_ROOT/cmdline-tools/16.0/bin/sdkmanager --update
+          $ANDROID_SDK_ROOT/cmdline-tools/16.0/bin/sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Generate Android Project Structure & Source Code
         run: |
@@ -28,7 +34,9 @@ jobs:
           import os
 
           def write_file(path, content):
-              os.makedirs(os.path.dirname(path), exist_ok=True)
+              parent = os.path.dirname(path)
+              if parent:
+                  os.makedirs(parent, exist_ok=True)
               with open(path, 'w', encoding='utf-8') as f:
                   f.write(content.lstrip('\n'))
 
@@ -110,7 +118,16 @@ jobs:
           }
           """)
 
-          # 5. AndroidManifest.xml
+          # proguard‑rules.pro 新增，WebView @JavascriptInterface 必须保留
+          write_file("app/proguard-rules.pro", """
+          # Proguard rules for habit tracker
+          -keepclassmembers class ** {
+              @android.webkit.JavascriptInterface <methods>;
+          }
+          -dontwarn **
+          """)
+
+          # 5. AndroidManifest.xml 移除 usesCleartextTraffic
           write_file("app/src/main/AndroidManifest.xml", """
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -124,8 +141,7 @@ jobs:
                   android:label="每日微习惯打卡器"
                   android:roundIcon="@drawable/ic_launcher_plastic"
                   android:supportsRtl="true"
-                  android:theme="@style/Theme.PlasticTracker"
-                  android:usesCleartextTraffic="true">
+                  android:theme="@style/Theme.PlasticTracker">
 
                   <activity
                       android:name=".MainActivity"
@@ -291,7 +307,6 @@ jobs:
               android:orientation="vertical"
               android:padding="12dp">
 
-              <!-- 顶部铭牌凹槽 -->
               <LinearLayout
                   android:id="@+id/widget_header_box"
                   android:layout_width="match_parent"
@@ -341,7 +356,6 @@ jobs:
                       android:textStyle="bold" />
               </LinearLayout>
 
-              <!-- 任务滑块列表 -->
               <ListView
                   android:id="@+id/widget_list_view"
                   android:layout_width="match_parent"
@@ -352,7 +366,6 @@ jobs:
                   android:dividerHeight="6dp"
                   android:scrollbars="none" />
 
-              <!-- 全部清零成就视图 -->
               <LinearLayout
                   android:id="@+id/widget_empty_view"
                   android:layout_width="match_parent"
@@ -744,7 +757,7 @@ jobs:
           }
           """)
 
-          # 14. HabitWidgetService.kt
+          # 14. HabitWidgetService.kt 修复小组件ID稳定性
           write_file("app/src/main/java/com/habit/plastictracker/HabitWidgetService.kt", """
           package com.habit.plastictracker
 
@@ -808,8 +821,8 @@ jobs:
 
               override fun getLoadingView(): RemoteViews? = null
               override fun getViewTypeCount(): Int = 1
-              override fun getItemId(position: Int): Long = position.toLong()
-              override fun hasStableIds(): Boolean = false
+              override fun getItemId(position: Int): Long = pendingList[position].item.id.hashCode().toLong()
+              override fun hasStableIds(): Boolean = true
           }
           """)
 
@@ -1216,9 +1229,9 @@ jobs:
               }
 
               @keyframes popIn {
-                0% { opacity: 0; transform: scale(0.88); }
-                70% { opacity: 1; transform: scale(1.03); }
-                100% { opacity: 1; transform: scale(1); }
+                0% {{ opacity: 0; transform: scale(0.88); }}
+                70% {{ opacity: 1; transform: scale(1.03); }}
+                100% {{ opacity: 1; transform: scale(1); }}
               }
 
               .victory-badge {
@@ -1301,7 +1314,7 @@ jobs:
 
                 <button id="edit-btn" class="tactile-btn">
                   <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 2 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
                   </svg>
                   <span>编辑清单</span>
                 </button>
@@ -1423,591 +1436,4 @@ jobs:
                     theme_color: '#e7e6e1',
                     icons: [{ src: iconUrl, sizes: '512x512', type: 'image/svg+xml', purpose: 'any maskable' }]
                   };
-                  const manifestBlob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
-                  const manifestLink = document.createElement('link');
-                  manifestLink.rel = 'manifest';
-                  manifestLink.href = URL.createObjectURL(manifestBlob);
-                  document.head.appendChild(manifestLink);
-                }
-
-                function getTodayString() {
-                  const now = new Date();
-                  const y = now.getFullYear();
-                  const m = String(now.getMonth() + 1).padStart(2, '0');
-                  const d = String(now.getDate()).padStart(2, '0');
-                  return `${y}-${m}-${d}`;
-                }
-
-                function getWeekdayString() {
-                  const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-                  return days[new Date().getDay()];
-                }
-
-                function getLast7Days() {
-                  const dates = [];
-                  for (let i = 6; i >= 0; i--) {
-                    const d = new Date();
-                    d.setDate(d.getDate() - i);
-                    const y = d.getFullYear();
-                    const m = String(d.getMonth() + 1).padStart(2, '0');
-                    const day = String(d.getDate()).padStart(2, '0');
-                    dates.push(`${y}-${m}-${day}`);
-                  }
-                  return dates;
-                }
-
-                let audioCtx = null;
-                function playClickSound(isUndo = false) {
-                  if (!state.soundEnabled) return;
-                  try {
-                    if (!audioCtx) {
-                      const AudioContext = window.AudioContext || window.webkitAudioContext;
-                      audioCtx = new AudioContext();
-                    }
-                    if (audioCtx.state === 'suspended') {
-                      audioCtx.resume();
-                    }
-                    const now = audioCtx.currentTime;
-
-                    const osc = audioCtx.createOscillator();
-                    const gain = audioCtx.createGain();
-                    osc.type = 'triangle';
-                    osc.frequency.setValueAtTime(isUndo ? 420 : 680, now);
-                    osc.frequency.exponentialRampToValueAtTime(isUndo ? 180 : 140, now + 0.045);
-
-                    gain.gain.setValueAtTime(0.35, now);
-                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.045);
-
-                    osc.connect(gain);
-                    gain.connect(audioCtx.destination);
-                    osc.start(now);
-                    osc.stop(now + 0.05);
-                  } catch (e) {}
-                }
-
-                function triggerHaptic() {
-                  if (hasBridge && window.AndroidBridge.vibrate) {
-                    try {
-                      window.AndroidBridge.vibrate();
-                      return;
-                    } catch (e) {}
-                  }
-                  if (navigator.vibrate) {
-                    try {
-                      navigator.vibrate(35);
-                    } catch (e) {}
-                  }
-                }
-
-                let state = {
-                  habits: [],
-                  completedIds: [],
-                  history: {},
-                  currentDate: getTodayString(),
-                  soundEnabled: true,
-                  darkMode: false
-                };
-
-                function loadState() {
-                  try {
-                    let rawHabits = hasBridge ? window.AndroidBridge.getHabitsJson() : localStorage.getItem(STORAGE_KEYS.HABITS);
-                    const savedHabits = JSON.parse(rawHabits);
-                    if (Array.isArray(savedHabits) && savedHabits.length > 0) {
-                      state.habits = savedHabits;
-                    } else {
-                      state.habits = DEFAULT_HABITS.map((text, idx) => ({ id: 'h_' + (idx + 1), text }));
-                    }
-                    localStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(state.habits));
-                    if (hasBridge) window.AndroidBridge.saveHabitsJson(JSON.stringify(state.habits));
-
-                    let rawDaily = hasBridge ? window.AndroidBridge.getDailyStateJson() : localStorage.getItem(STORAGE_KEYS.STATE);
-                    const savedDaily = JSON.parse(rawDaily);
-                    const today = getTodayString();
-
-                    if (savedDaily && savedDaily.date === today && Array.isArray(savedDaily.completedIds)) {
-                      const validIds = new Set(state.habits.map(h => h.id));
-                      state.completedIds = savedDaily.completedIds.filter(id => validIds.has(id));
-                    } else {
-                      state.completedIds = [];
-                    }
-                    state.currentDate = today;
-
-                    let rawHistory = hasBridge && window.AndroidBridge.getWeeklyHistoryJson ? window.AndroidBridge.getWeeklyHistoryJson() : localStorage.getItem(STORAGE_KEYS.HISTORY);
-                    state.history = rawHistory ? JSON.parse(rawHistory) : {};
-                    state.history[today] = [...state.completedIds];
-                    saveDailyState();
-
-                    const savedSound = localStorage.getItem(STORAGE_KEYS.SOUND);
-                    state.soundEnabled = savedSound === null ? true : savedSound === 'true';
-
-                    const savedTheme = localStorage.getItem(STORAGE_KEYS.THEME);
-                    if (savedTheme) {
-                      state.darkMode = savedTheme === 'dark';
-                    } else {
-                      const hour = new Date().getHours();
-                      state.darkMode = (hour >= 19 || hour < 6);
-                    }
-                  } catch (e) {
-                    state.habits = DEFAULT_HABITS.map((text, idx) => ({ id: 'h_' + (idx + 1), text }));
-                    state.completedIds = [];
-                    state.history = {};
-                  }
-                }
-
-                function saveDailyState() {
-                  const today = state.currentDate;
-                  state.history[today] = [...state.completedIds];
-                  const dailyPayload = JSON.stringify({
-                    date: today,
-                    completedIds: state.completedIds
-                  });
-                  const historyPayload = JSON.stringify(state.history);
-                  try {
-                    localStorage.setItem(STORAGE_KEYS.STATE, dailyPayload);
-                    localStorage.setItem(STORAGE_KEYS.HISTORY, historyPayload);
-                    if (hasBridge) {
-                      window.AndroidBridge.saveDailyStateJson(dailyPayload);
-                      if (window.AndroidBridge.saveWeeklyHistoryJson) {
-                        window.AndroidBridge.saveWeeklyHistoryJson(historyPayload);
-                      }
-                    }
-                  } catch (e) {}
-                }
-
-                function saveHabitsList() {
-                  const payload = JSON.stringify(state.habits);
-                  try {
-                    localStorage.setItem(STORAGE_KEYS.HABITS, payload);
-                    if (hasBridge) window.AndroidBridge.saveHabitsJson(payload);
-                  } catch (e) {}
-                }
-
-                window.__syncFromNative = function () {
-                  if (!hasBridge) return;
-                  try {
-                    const savedHabits = JSON.parse(window.AndroidBridge.getHabitsJson());
-                    if (Array.isArray(savedHabits) && savedHabits.length > 0) {
-                      state.habits = savedHabits;
-                      localStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(state.habits));
-                    }
-                    const savedDaily = JSON.parse(window.AndroidBridge.getDailyStateJson());
-                    const today = getTodayString();
-                    if (savedDaily && savedDaily.date === today && Array.isArray(savedDaily.completedIds)) {
-                      const validIds = new Set(state.habits.map(h => h.id));
-                      state.completedIds = savedDaily.completedIds.filter(id => validIds.has(id));
-                    } else {
-                      state.completedIds = [];
-                    }
-                    state.currentDate = today;
-                    if (window.AndroidBridge.getWeeklyHistoryJson) {
-                      state.history = JSON.parse(window.AndroidBridge.getWeeklyHistoryJson() || '{}');
-                    }
-                    renderAll();
-                  } catch (e) {}
-                };
-
-                function checkDateRollover() {
-                  const today = getTodayString();
-                  if (today !== state.currentDate) {
-                    state.currentDate = today;
-                    state.completedIds = [];
-                    saveDailyState();
-                    renderAll();
-                    showToast('新的一天已开始，滑块已自动重置');
-                  }
-                }
-
-                function applyTheme() {
-                  const htmlEl = document.documentElement;
-                  const metaTheme = document.getElementById('theme-color-meta');
-                  const moonIcon = document.getElementById('icon-moon');
-                  const sunIcon = document.getElementById('icon-sun');
-
-                  if (state.darkMode) {
-                    htmlEl.classList.add('dark');
-                    metaTheme.setAttribute('content', '#1e1f22');
-                    moonIcon.classList.add('hidden');
-                    sunIcon.classList.remove('hidden');
-                  } else {
-                    htmlEl.classList.remove('dark');
-                    metaTheme.setAttribute('content', '#e7e6e1');
-                    moonIcon.classList.remove('hidden');
-                    sunIcon.classList.add('hidden');
-                  }
-                  if (hasBridge && window.AndroidBridge.setSystemBarsDark) {
-                    try { window.AndroidBridge.setSystemBarsDark(state.darkMode); } catch (e) {}
-                  }
-                }
-
-                function applySoundUI() {
-                  const onIcon = document.getElementById('icon-sound-on');
-                  const offIcon = document.getElementById('icon-sound-off');
-                  if (state.soundEnabled) {
-                    onIcon.classList.remove('hidden');
-                    offIcon.classList.add('hidden');
-                  } else {
-                    onIcon.classList.add('hidden');
-                    offIcon.classList.remove('hidden');
-                  }
-                }
-
-                let toastTimer = null;
-                function showToast(msg) {
-                  const toast = document.getElementById('toast');
-                  toast.textContent = msg;
-                  toast.classList.remove('opacity-0');
-                  clearTimeout(toastTimer);
-                  toastTimer = setTimeout(() => {
-                    toast.classList.add('opacity-0');
-                  }, 2000);
-                }
-
-                function renderHeader() {
-                  document.getElementById('date-display').textContent = state.currentDate;
-                  document.getElementById('weekday-display').textContent = getWeekdayString();
-
-                  const total = state.habits.length;
-                  const doneCount = state.completedIds.length;
-                  const remain = Math.max(0, total - doneCount);
-
-                  document.getElementById('progress-text').textContent = `剩余 ${remain} / ${total}`;
-
-                  const ledBar = document.getElementById('led-bar');
-                  ledBar.innerHTML = '';
-                  for (let i = 0; i < total; i++) {
-                    const dot = document.createElement('div');
-                    dot.className = 'led-dot' + (i < doneCount ? ' done' : '');
-                    ledBar.appendChild(dot);
-                  }
-
-                  const undoBtn = document.getElementById('undo-btn');
-                  undoBtn.disabled = state.completedIds.length === 0;
-                }
-
-                function renderList() {
-                  const listEl = document.getElementById('habit-list');
-                  const victoryEl = document.getElementById('victory-panel');
-                  listEl.innerHTML = '';
-
-                  const completedSet = new Set(state.completedIds);
-                  const pendingHabits = state.habits
-                    .map((item, originalIndex) => ({ ...item, originalIndex: originalIndex + 1 }))
-                    .filter(item => !completedSet.has(item.id));
-
-                  if (pendingHabits.length === 0 && state.habits.length > 0) {
-                    listEl.classList.add('hidden');
-                    victoryEl.classList.remove('hidden');
-                    victoryEl.classList.add('flex');
-                    return;
-                  } else {
-                    listEl.classList.remove('hidden');
-                    victoryEl.classList.add('hidden');
-                    victoryEl.classList.remove('flex');
-                  }
-
-                  pendingHabits.forEach(item => {
-                    const wrapper = document.createElement('div');
-                    wrapper.className = 'habit-wrapper';
-                    wrapper.dataset.id = item.id;
-
-                    const slot = document.createElement('div');
-                    slot.className = 'habit-slot';
-                    slot.setAttribute('role', 'button');
-                    slot.setAttribute('tabindex', '0');
-                    slot.setAttribute('aria-label', `完成：${item.text}`);
-
-                    slot.innerHTML = `
-                      <span class="habit-index">${item.originalIndex}</span>
-                      <span class="habit-text">${escapeHTML(item.text)}</span>
-                      <div class="plastic-switch" aria-hidden="true">
-                        <div class="switch-thumb"></div>
-                      </div>
-                    `;
-
-                    let isProcessing = false;
-                    slot.addEventListener('click', () => {
-                      if (isProcessing) return;
-                      isProcessing = true;
-
-                      slot.classList.add('checked');
-                      triggerHaptic();
-                      playClickSound(false);
-
-                      if (!state.completedIds.includes(item.id)) {
-                        state.completedIds.push(item.id);
-                        saveDailyState();
-                      }
-                      renderHeader();
-
-                      setTimeout(() => {
-                        wrapper.classList.add('collapsing');
-                        setTimeout(() => {
-                          wrapper.remove();
-                          if (state.completedIds.length >= state.habits.length) {
-                            renderList();
-                          }
-                        }, 320);
-                      }, 300);
-                    });
-
-                    wrapper.appendChild(slot);
-                    listEl.appendChild(wrapper);
-                  });
-                }
-
-                function renderStatsModal() {
-                  const container = document.getElementById('stats-content');
-                  container.innerHTML = '';
-
-                  const last7Days = getLast7Days();
-                  const dayLabels = last7Days.map(dateStr => {
-                    const parts = dateStr.split('-');
-                    return `${parts[1]}-${parts[2]}`;
-                  });
-
-                  state.habits.forEach((habit, idx) => {
-                    let completedDaysCount = 0;
-                    const dayStatus = last7Days.map(dateStr => {
-                      const dayCompletedIds = state.history[dateStr] || [];
-                      const done = dayCompletedIds.includes(habit.id);
-                      if (done) completedDaysCount++;
-                      return done;
-                    });
-
-                    const itemCard = document.createElement('div');
-                    itemCard.className = 'p-3 rounded-xl border flex flex-col gap-2';
-                    itemCard.style.borderColor = 'var(--paper-border)';
-                    itemCard.style.background = 'var(--board-bg)';
-
-                    let dotsHtml = '';
-                    dayStatus.forEach((done, dIdx) => {
-                      const bg = done ? 'var(--accent-green)' : 'var(--track-bg)';
-                      const title = `${last7Days[dIdx]}: ${done ? '已完成' : '未完成'}`;
-                      dotsHtml += `<div class="flex-1 h-3 rounded-sm" style="background: ${bg};" title="${title}"></div>`;
-                    });
-
-                    itemCard.innerHTML = `
-                      <div class="flex items-center justify-between">
-                        <div class="flex items-center gap-2">
-                          <span class="text-xs font-extrabold px-1.5 py-0.5 rounded" style="background: var(--slot-bg); color: var(--text-muted);">${idx + 1}</span>
-                          <span class="text-sm font-bold truncate max-w-[220px]">${escapeHTML(habit.text)}</span>
-                        </div>
-                        <span class="text-xs font-extrabold px-2 py-0.5 rounded-full" style="background: var(--slot-bg);">近7天 ${completedDaysCount}/7 天</span>
-                      </div>
-                      <div class="flex items-center gap-1 mt-1">
-                        ${dotsHtml}
-                      </div>
-                      <div class="flex justify-between text-[10px] opacity-50 px-0.5">
-                        <span>${dayLabels[0]}</span>
-                        <span>今天</span>
-                      </div>
-                    `;
-                    container.appendChild(itemCard);
-                  });
-                }
-
-                function renderAll() {
-                  applyTheme();
-                  applySoundUI();
-                  renderHeader();
-                  renderList();
-                }
-
-                function escapeHTML(str) {
-                  const div = document.createElement('div');
-                  div.textContent = str;
-                  return div.innerHTML;
-                }
-
-                function bindEvents() {
-                  const statsModal = document.getElementById('stats-modal');
-                  document.getElementById('stats-btn').addEventListener('click', () => {
-                    renderStatsModal();
-                    statsModal.classList.remove('hidden');
-                    statsModal.classList.add('flex');
-                  });
-                  document.getElementById('stats-close-btn').addEventListener('click', () => {
-                    statsModal.classList.add('hidden');
-                    statsModal.classList.remove('flex');
-                  });
-
-                  document.getElementById('sound-toggle').addEventListener('click', () => {
-                    state.soundEnabled = !state.soundEnabled;
-                    localStorage.setItem(STORAGE_KEYS.SOUND, String(state.soundEnabled));
-                    applySoundUI();
-                    if (state.soundEnabled) playClickSound(false);
-                    showToast(state.soundEnabled ? '已开启机械音效' : '已静音');
-                  });
-
-                  document.getElementById('theme-toggle').addEventListener('click', () => {
-                    state.darkMode = !state.darkMode;
-                    localStorage.setItem(STORAGE_KEYS.THEME, state.darkMode ? 'dark' : 'light');
-                    applyTheme();
-                  });
-
-                  document.getElementById('undo-btn').addEventListener('click', () => {
-                    if (state.completedIds.length === 0) return;
-                    const lastId = state.completedIds.pop();
-                    saveDailyState();
-                    playClickSound(true);
-                    renderAll();
-                    const restored = state.habits.find(h => h.id === lastId);
-                    if (restored) {
-                      showToast(`已恢复：${restored.text}`);
-                    }
-                  });
-
-                  const confirmModal = document.getElementById('confirm-modal');
-                  document.getElementById('reset-btn').addEventListener('click', () => {
-                    confirmModal.classList.remove('hidden');
-                    confirmModal.classList.add('flex');
-                  });
-
-                  document.getElementById('confirm-cancel').addEventListener('click', () => {
-                    confirmModal.classList.add('hidden');
-                    confirmModal.classList.remove('flex');
-                  });
-
-                  document.getElementById('confirm-ok').addEventListener('click', () => {
-                    state.completedIds = [];
-                    saveDailyState();
-                    playClickSound(true);
-                    triggerHaptic();
-                    confirmModal.classList.add('hidden');
-                    confirmModal.classList.remove('flex');
-                    renderAll();
-                    showToast('今日滑块已全部归位');
-                  });
-
-                  const editModal = document.getElementById('edit-modal');
-                  const editContainer = document.getElementById('edit-items-container');
-
-                  function renderEditRows(itemsList) {
-                    editContainer.innerHTML = '';
-                    itemsList.forEach((item, index) => {
-                      const row = document.createElement('div');
-                      row.className = 'flex items-center gap-2';
-                      row.innerHTML = `
-                        <span class="text-xs font-bold opacity-50 w-5 text-center">${index + 1}</span>
-                        <input type="text" value="${escapeHTML(item.text)}" data-id="${item.id}"
-                          class="flex-1 px-3 py-2 rounded-xl text-sm font-medium border outline-none focus:ring-2"
-                          style="background: var(--board-bg); border-color: var(--paper-border); color: var(--text-main);"
-                          placeholder="输入微习惯内容..." />
-                        <button type="button" class="del-row-btn p-2 rounded-lg opacity-60 hover:opacity-100 text-red-500" title="删除此项">
-                          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-                          </svg>
-                        </button>
-                      `;
-                      row.querySelector('.del-row-btn').addEventListener('click', () => {
-                        row.remove();
-                        Array.from(editContainer.children).forEach((r, idx) => {
-                          r.querySelector('span').textContent = idx + 1;
-                        });
-                      });
-                      editContainer.appendChild(row);
-                    });
-                  }
-
-                  document.getElementById('edit-btn').addEventListener('click', () => {
-                    renderEditRows(state.habits);
-                    editModal.classList.remove('hidden');
-                    editModal.classList.add('flex');
-                  });
-
-                  document.getElementById('add-item-btn').addEventListener('click', () => {
-                    const currentCount = editContainer.children.length;
-                    const newId = 'h_' + Date.now() + '_' + Math.floor(Math.random() * 100);
-                    const row = document.createElement('div');
-                    row.className = 'flex items-center gap-2';
-                    row.innerHTML = `
-                      <span class="text-xs font-bold opacity-50 w-5 text-center">${currentCount + 1}</span>
-                      <input type="text" value="" data-id="${newId}"
-                        class="flex-1 px-3 py-2 rounded-xl text-sm font-medium border outline-none focus:ring-2"
-                        style="background: var(--board-bg); border-color: var(--paper-border); color: var(--text-main);"
-                        placeholder="输入新微习惯..." />
-                      <button type="button" class="del-row-btn p-2 rounded-lg opacity-60 hover:opacity-100 text-red-500" title="删除此项">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-                        </svg>
-                      </button>
-                    `;
-                    row.querySelector('.del-row-btn').addEventListener('click', () => {
-                      row.remove();
-                      Array.from(editContainer.children).forEach((r, idx) => {
-                        r.querySelector('span').textContent = idx + 1;
-                      });
-                    });
-                    editContainer.appendChild(row);
-                    row.querySelector('input').focus();
-                  });
-
-                  document.getElementById('restore-defaults-btn').addEventListener('click', () => {
-                    const defaults = DEFAULT_HABITS.map((text, idx) => ({ id: 'h_' + (idx + 1), text }));
-                    renderEditRows(defaults);
-                    showToast('已载入默认10项，点击保存生效');
-                  });
-
-                  document.getElementById('edit-cancel').addEventListener('click', () => {
-                    editModal.classList.add('hidden');
-                    editModal.classList.remove('flex');
-                  });
-
-                  document.getElementById('edit-save').addEventListener('click', () => {
-                    const inputs = Array.from(editContainer.querySelectorAll('input'));
-                    const updatedHabits = inputs
-                      .map(inp => ({ id: inp.dataset.id, text: inp.value.trim() }))
-                      .filter(item => item.text.length > 0);
-
-                    if (updatedHabits.length === 0) {
-                      showToast('请至少保留一项打卡内容');
-                      return;
-                    }
-
-                    state.habits = updatedHabits;
-                    const validIds = new Set(state.habits.map(h => h.id));
-                    state.completedIds = state.completedIds.filter(id => validIds.has(id));
-
-                    saveHabitsList();
-                    saveDailyState();
-                    editModal.classList.add('hidden');
-                    editModal.classList.remove('flex');
-                    renderAll();
-                    showToast('纸条清单已保存');
-                  });
-
-                  document.addEventListener('visibilitychange', () => {
-                    if (document.visibilityState === 'visible') {
-                      checkDateRollover();
-                    }
-                  });
-                  setInterval(checkDateRollover, 60000);
-                }
-
-                setupPWA();
-                loadState();
-                bindEvents();
-                renderAll();
-              })();
-            </script>
-          </body>
-          </html>"""
-          write_file("app/src/main/assets/index.html", html_content)
-
-          print("Generic version generated successfully!")
-          EOF
-
-      - name: Initialize Gradle Wrapper
-        run: gradle wrapper --gradle-version 8.5
-
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace
-
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: DailyHabitTracker-Generic-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 30
-
-
+                  const manifestBlob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json
