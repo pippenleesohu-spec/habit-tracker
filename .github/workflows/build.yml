@@ -22,6 +22,10 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | sdkmanager --licenses || true
+
       - name: Generate Android Project Structure & Source Code
         run: |
           python3 - << 'EOF'
@@ -967,7 +971,7 @@ jobs:
           }
           """)
 
-          # 16. Embed HTML into app/src/main/assets/index.html with Generic Default Items (AAA - JJJ)
+          # 16. Embed HTML into app/src/main/assets/index.html
           html_content = r"""<!DOCTYPE html>
           <html lang="zh-CN">
           <head>
