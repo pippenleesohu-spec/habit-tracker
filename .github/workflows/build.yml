@@ -1150,3 +1150,316 @@ state.soundEnabled=snd===null?true:snd==='true';
 
 const thm=localStorage.getItem(STORAGE_KEYS.THEME);
 if(thm){
+state.darkMode=thm==='dark';
+}else{
+const h=new Date().getHours();
+state.darkMode=(h>=19||h<6);
+}
+}catch(e){
+state.habits=DEFAULT_HABITS.map((txt,idx)=>({id:'h_'+(idx+1),text:txt}));
+state.completedIds=[];state.history={};
+}
+}
+function saveDailyState(){
+const today=state.currentDate;
+state.history[today]=[...state.completedIds];
+const dailyPayload=JSON.stringify({date:today,completedIds:state.completedIds});
+const histPayload=JSON.stringify(state.history);
+try{
+localStorage.setItem(STORAGE_KEYS.STATE,dailyPayload);
+localStorage.setItem(STORAGE_KEYS.HISTORY,histPayload);
+if(hasBridge){
+window.AndroidBridge.saveDailyStateJson(dailyPayload);
+if(window.AndroidBridge.saveWeeklyHistoryJson) window.AndroidBridge.saveWeeklyHistoryJson(histPayload);
+}
+}catch(e){}
+}
+function saveHabitsList(){
+const payload=JSON.stringify(state.habits);
+try{
+localStorage.setItem(STORAGE_KEYS.HABITS,payload);
+if(hasBridge) window.AndroidBridge.saveHabitsJson(payload);
+}catch(e){}
+}
+
+function applyTheme(){
+  const htmlEl = document.documentElement;
+  const iconMoon = document.getElementById('icon-moon');
+  const iconSun = document.getElementById('icon-sun');
+  const metaTheme = document.getElementById('theme-color-meta');
+  if(state.darkMode){
+    htmlEl.classList.add('dark');
+    if(iconMoon) iconMoon.classList.add('hidden');
+    if(iconSun) iconSun.classList.remove('hidden');
+    if(metaTheme) metaTheme.content = '#1e1f22';
+    if(hasBridge && window.AndroidBridge?.setSystemBarsDark){
+      try{ window.AndroidBridge.setSystemBarsDark(true); }catch(err){}
+    }
+  }else{
+    htmlEl.classList.remove('dark');
+    if(iconMoon) iconMoon.classList.remove('hidden');
+    if(iconSun) iconSun.classList.add('hidden');
+    if(metaTheme) metaTheme.content = '#e5e5e0';
+    if(hasBridge && window.AndroidBridge?.setSystemBarsDark){
+      try{ window.AndroidBridge.setSystemBarsDark(false); }catch(err){}
+    }
+  }
+}
+
+function renderHabits(){
+  const listEl = document.getElementById('habit-list');
+  const victoryEl = document.getElementById('victory-panel');
+  const progressText = document.getElementById('progress-text');
+  const ledBar = document.getElementById('led-bar');
+  listEl.innerHTML = '';
+
+  const total = state.habits.length;
+  const doneCount = state.completedIds.length;
+  const remain = total - doneCount;
+
+  progressText.textContent = `剩余 ${remain} / ${total}`;
+
+  // 绘制LED进度条
+  ledBar.innerHTML = '';
+  for(let i=0;i<total;i++){
+    const dot = document.createElement('div');
+    dot.className = 'led-dot' + (i < doneCount ? ' done' : '');
+    ledBar.appendChild(dot);
+  }
+
+  if(remain <= 0 && total>0){
+    victoryEl.style.display = 'flex';
+    listEl.style.display = 'none';
+  }else{
+    victoryEl.style.display = 'none';
+    listEl.style.display = 'flex';
+  }
+
+  state.habits.forEach((habit,idx)=>{
+    const isDone = state.completedIds.includes(habit.id);
+    const wrapper = document.createElement('div');
+    wrapper.className = 'habit-wrapper' + (isDone ? ' collapsing' : '');
+    wrapper.dataset.id = habit.id;
+
+    wrapper.innerHTML = `
+<div class="habit-slot ${isDone?'checked':''}">
+  <div class="habit-index">${idx+1}</div>
+  <div class="habit-text">${escapeHtml(habit.text)}</div>
+  <div class="plastic-switch">
+    <div class="switch-thumb"></div>
+  </div>
+</div>`;
+    const slot = wrapper.querySelector('.habit-slot');
+    slot.addEventListener('click',()=>{
+      triggerHaptic();
+      playClickSound(false);
+      const hid = habit.id;
+      if(!state.completedIds.includes(hid)){
+        state.completedIds.push(hid);
+        saveDailyState();
+        renderHabits();
+      }
+    });
+    listEl.appendChild(wrapper);
+  });
+}
+
+function escapeHtml(str){
+  return String(str)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#039;');
+}
+
+function showToast(msg){
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.style.opacity = '1';
+  setTimeout(()=>{toast.style.opacity='0';},1200);
+}
+
+function bindModals(){
+  //主题切换
+  const themeBtn = document.getElementById('theme-toggle');
+  themeBtn.addEventListener('click',()=>{
+    state.darkMode = !state.darkMode;
+    localStorage.setItem(STORAGE_KEYS.THEME, state.darkMode ? 'dark':'light');
+    applyTheme();
+  });
+
+  //音效开关
+  const soundBtn = document.getElementById('sound-toggle');
+  const iconOn = document.getElementById('icon-sound-on');
+  const iconOff = document.getElementById('icon-sound-off');
+  soundBtn.addEventListener('click',()=>{
+    state.soundEnabled = !state.soundEnabled;
+    localStorage.setItem(STORAGE_KEYS.SOUND, String(state.soundEnabled));
+    if(state.soundEnabled){
+      iconOn.classList.remove('hidden');
+      iconOff.classList.add('hidden');
+    }else{
+      iconOn.classList.add('hidden');
+      iconOff.classList.remove('hidden');
+    }
+  });
+
+  //重置弹窗
+  const resetBtn = document.getElementById('reset-btn');
+  const confirmModal = document.getElementById('confirm-modal');
+  const confirmCancel = document.getElementById('confirm-cancel');
+  const confirmOk = document.getElementById('confirm-ok');
+
+  resetBtn.addEventListener('click',()=>{
+    confirmModal.style.display='flex';
+  });
+  confirmCancel.addEventListener('click',()=>{
+    confirmModal.style.display='none';
+  });
+  confirmOk.addEventListener('click',()=>{
+    triggerHaptic();
+    playClickSound(true);
+    state.completedIds = [];
+    saveDailyState();
+    renderHabits();
+    confirmModal.style.display='none';
+    showToast('已全部重置');
+  });
+
+  //编辑清单弹窗
+  const editBtn = document.getElementById('edit-btn');
+  const editModal = document.getElementById('edit-modal');
+  const editContainer = document.getElementById('edit-items-container');
+  const addItemBtn = document.getElementById('add-item-btn');
+  const restoreDefaultsBtn = document.getElementById('restore-defaults-btn');
+  const editCancel = document.getElementById('edit-cancel');
+  const editSave = document.getElementById('edit-save');
+
+  function fillEditItems(){
+    editContainer.innerHTML='';
+    state.habits.forEach((h,idx)=>{
+      const row = document.createElement('div');
+      row.style.display='flex';
+      row.style.gap='8px';
+      row.innerHTML = `
+<input class="edit-text-input flex-1 p-2 rounded-lg border" value="${escapeHtml(h.text)}" data-idx="${idx}"/>
+<button class="tactile-btn del-btn !px-2 !py-1">删除</button>`;
+      editContainer.appendChild(row);
+    });
+  }
+
+  editBtn.addEventListener('click',()=>{
+    fillEditItems();
+    editModal.style.display='flex';
+  });
+  editCancel.addEventListener('click',()=>{
+    editModal.style.display='none';
+  });
+  addItemBtn.addEventListener('click',()=>{
+    const row = document.createElement('div');
+    row.style.display='flex';
+    row.style.gap='8px';
+    row.innerHTML = `<input class="edit-text-input flex-1 p-2 rounded-lg border" placeholder="输入新习惯"/>
+<button class="tactile-btn del-btn !px-2 !py-1">删除</button>`;
+    editContainer.appendChild(row);
+  });
+  editContainer.addEventListener('click',(e)=>{
+    if(e.target.classList.contains('del-btn')){
+      e.target.parentElement.remove();
+    }
+  });
+  restoreDefaultsBtn.addEventListener('click',()=>{
+    state.habits = DEFAULT_HABITS.map((txt,idx)=>({id:'h_'+(idx+1),text:txt}));
+    fillEditItems();
+  });
+
+  editSave.addEventListener('click',()=>{
+    const inputs = editContainer.querySelectorAll('.edit-text-input');
+    const newList = [];
+    for(let inp of inputs){
+      const txt = (inp.value||'').trim();
+      if(txt){
+        newList.push({
+          id:'h_'+Math.random().toString(36).slice(2,10),
+          text:txt
+        });
+      }
+    }
+    if(newList.length===0){
+      showToast('至少保留一项');
+      return;
+    }
+    state.habits = newList;
+    saveHabitsList();
+    renderHabits();
+    editModal.style.display='none';
+    showToast('清单已保存');
+  });
+
+  //周统计弹窗(简易实现)
+  const statsBtn = document.getElementById('stats-btn');
+  const statsModal = document.getElementById('stats-modal');
+  const statsClose = document.getElementById('stats-close-btn');
+  const statsContent = document.getElementById('stats-content');
+
+  statsBtn.addEventListener('click',()=>{
+    statsModal.style.display='flex';
+    statsContent.innerHTML='';
+    const days = getLast7Days();
+    days.forEach(d=>{
+      const doneArr = state.history[d]||[];
+      const div = document.createElement('div');
+      div.className='p-2 rounded border';
+      div.innerHTML = `<div class="font-bold">${d}</div><div>完成: ${doneArr.length} 项</div>`;
+      statsContent.appendChild(div);
+    });
+  });
+  statsClose.addEventListener('click',()=>{
+    statsModal.style.display='none';
+  });
+
+  //点击模态框外部关闭
+  [confirmModal,editModal,statsModal].forEach(modal=>{
+    modal.addEventListener('click',(ev)=>{
+      if(ev.target===modal) modal.style.display='none';
+    });
+  });
+}
+
+// 供Android端WebView调用同步
+window.__syncFromNative = function(){
+  loadState();
+  renderHabits();
+};
+
+function initApp(){
+  setupPWA();
+  loadState();
+  applyTheme();
+  bindModals();
+  renderHabits();
+
+  //设置日期文字
+  document.getElementById('date-display').textContent = getTodayString();
+  document.getElementById('weekday-display').textContent = getWeekdayString();
+
+  //音效图标初始状态
+  const iconOn = document.getElementById('icon-sound-on');
+  const iconOff = document.getElementById('icon-sound-off');
+  if(state.soundEnabled){
+    iconOn.classList.remove('hidden');
+    iconOff.classList.add('hidden');
+  }else{
+    iconOn.classList.add('hidden');
+    iconOff.classList.remove('hidden');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', initApp);
+})();
+</script>
+</body>
+</html>
+HTML
+
